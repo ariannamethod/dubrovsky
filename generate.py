@@ -117,7 +117,7 @@ def generate_text(
             last_end = pos
     
     # If we found a sentence ending, trim there
-    if last_end > 0:
+    if last_end >= 0:
         output_text = prompt + generated_part[:last_end + 1]
     
     if verbose:

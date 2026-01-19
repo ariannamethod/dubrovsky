@@ -820,7 +820,7 @@ int main(int argc, char** argv) {
                 break;
             }
         }
-        if (last_end > 0) {
+        if (last_end >= 0) {
             output_buffer[last_end + 1] = '\0';
         }
         
