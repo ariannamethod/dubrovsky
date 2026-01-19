@@ -21,65 +21,65 @@
     D U B R O V S K Y  -  C O N S C I O U S N E S S  A S  A  S E R V I C E
 ```
 
-## 🤯 Что это вообще такое?
+## 🤯 What Even Is This?
 
-**Дубровский** — это мини-трансформер (~9.5M параметров), обученный на абсурдистском QA датасете о сущности бытия, сознания, и почему ваш код не работает.
+**Dubrovsky** is a mini-transformer (~9.5M parameters) trained on an absurdist QA dataset about the nature of existence, consciousness, and why your code doesn't work.
 
-Представьте, что философ-экзистенциалист, программист на Haskell, и попугай, который слишком много читал StackOverflow, решили написать self-help книгу. Но вместо книги получился нейросетевой оракул, который отвечает на вопросы с точностью сломанных часов — иногда поразительно точно, чаще поразительно странно.
+Imagine an existentialist philosopher, a Haskell programmer, and a parrot who read too much StackOverflow decided to write a self-help book. But instead of a book, they created a neural oracle that answers questions with the accuracy of a broken clock—sometimes astonishingly precise, more often astonishingly strange.
 
-### Философия проекта
+### Project Philosophy
 
 > Q: What is the meaning of life?
 > 
 > A: Dubrovsky folded the question into origami, which immediately filed a lawsuit for existential harassment. The meaning contracted paperwork in triplicate, signed by a nervous photon. He declared Tuesday as the answer but forgot to attach the timezone. The universe sent a bounce-back email.
 
-## 🧠 Архитектура (Llama 3 Style)
+## 🧠 Architecture (Llama 3 Style)
 
-Это не просто GPT для бедных. Это **Llama 3 архитектура**, но маленькая и агрессивно абсурдная:
+This isn't just GPT for the poor. This is **Llama 3 architecture**, but small and aggressively absurd:
 
-| Параметр | Значение | Комментарий |
+| Parameter | Value | Comment |
 |----------|----------|-------------|
-| `dim` | 384 | Размерность эмбеддингов (как количество экзистенциальных измерений) |
-| `n_layers` | 6 | Слои трансформера (как стадии горя) |
-| `n_heads` | 6 | Голов внимания (одна на каждый день рабочей недели) |
-| `n_kv_heads` | 2 | GQA! Grouped Query Attention. Потому что можем. |
-| `hidden_dim` | 1024 | SwiGLU FFN (гладко как мои отговорки) |
-| `vocab_size` | 88 | Character-level. Каждый символ — отдельная вселенная. |
-| `max_seq_len` | 256 | Максимум токенов (как лимит терпения вселенной) |
+| `dim` | 384 | Embedding dimension (like the number of existential dimensions) |
+| `n_layers` | 6 | Transformer layers (like stages of grief) |
+| `n_heads` | 6 | Attention heads (one for each day of the work week) |
+| `n_kv_heads` | 2 | GQA! Grouped Query Attention. Because we can. |
+| `hidden_dim` | 1024 | SwiGLU FFN (smooth like my excuses) |
+| `vocab_size` | 88 | Character-level. Each character is a separate universe. |
+| `max_seq_len` | 256 | Maximum tokens (like the universe's patience limit) |
 
-### Фичи:
-- 🔄 **RoPE** (Rotary Position Embeddings) — позиции вращаются как моя тревожность
-- 🎯 **GQA** (Grouped Query Attention) — меньше KV heads, больше философской плотности
-- ⚡ **SwiGLU** — активация более гладкая чем мои экзистенциальные переходы
-- 📏 **RMSNorm** — нормализуем реальность с 2023 года
+### Features:
+- 🔄 **RoPE** (Rotary Position Embeddings) — positions rotate like my anxiety
+- 🎯 **GQA** (Grouped Query Attention) — fewer KV heads, more philosophical density
+- ⚡ **SwiGLU** — activation smoother than my existential transitions
+- 📏 **RMSNorm** — normalizing reality since 2023
 
-### Параметры:
+### Parameters:
 ```
 Total parameters: 9,509,760 (~9.5M)
 Size (float32):   36.28 MB
 Size (float16):   18.14 MB
 ```
 
-## 🔥 Как запустить
+## 🔥 How to Run
 
-### 1. Тренировка
+### 1. Training
 
 ```bash
-# На вашей машине (для тестов)
+# On your machine (for testing)
 python train.py
 
-# На Lambda GPU (для серьёзного обучения)
+# On Lambda GPU (for serious training)
 ./setup_lambda.sh
 ./train_lambda.sh
 ```
 
-### 2. Экспорт весов
+### 2. Export Weights
 
 ```bash
 python export_weights.py subtitles/dubrovsky_final.pt subtitles/dubrovsky.bin
 ```
 
-### 3. Инференс
+### 3. Inference
 
 **Pure Python (NO PyTorch!):**
 ```bash
@@ -99,24 +99,24 @@ node lexa.js --prompt "Q: What is life?"
 node lexa.js --interactive
 ```
 
-## 📚 Датасет
+## 📚 Dataset
 
-Датасет `dubrovsky.txt` содержит ~3200 QA пар философского/абсурдистского характера:
+The `dubrovsky.txt` dataset contains ~3200 QA pairs of philosophical/absurdist nature:
 
 ```
-📊 Статистика датасета:
-   Размер: ~1.17 MB
-   Символов: 1,170,316
-   Уникальных символов: 88
-   Строк: 3,231
-   Слов (примерно): 165,401
+📊 Dataset Statistics:
+   Size: ~1.17 MB
+   Characters: 1,170,316
+   Unique characters: 88
+   Lines: 3,231
+   Words (approximately): 165,401
 ```
 
-Сравнение с другими датасетами:
+Comparison with other datasets:
 - Shakespeare (Karpathy): ~1MB
-- **Dubrovsky: ~1.17MB** — больше шекспира, меньше смысла
+- **Dubrovsky: ~1.17MB** — more than Shakespeare, less sense
 
-## 💡 Примеры генерации
+## 💡 Generation Examples
 
 > **Q: Why does my code have bugs?**
 > 
@@ -134,30 +134,30 @@ node lexa.js --interactive
 > 
 > A: A bug in the universe's beta release that achieved product-market fit. Dubrovsky reverse-engineered it using malfunctioning toasters and discovered consciousness is just matter having an anxiety attack about being observed. He bottled some and now uses it to season his philosophical salads.
 
-## 🏗️ Структура проекта
+## 🏗️ Project Structure
 
 ```
 dubrovsky/
-├── dubrovsky.txt          # 🎭 Датасет абсурда
-├── dubrovsky.py           # 🧠 Llama 3 архитектура + Pure NumPy inference
-├── train.py               # 🎓 Тренировка (PyTorch)
-├── export_weights.py      # 📦 Экспорт весов в бинарный формат
+├── dubrovsky.txt          # 🎭 Absurdist dataset
+├── dubrovsky.py           # 🧠 Llama 3 architecture + Pure NumPy inference
+├── train.py               # 🎓 Training (PyTorch)
+├── export_weights.py      # 📦 Export weights to binary format
 ├── generate.py            # 🎭 Pure Python inference (NO TORCH!)
 ├── alexey.c               # ⚡ C inference (ZERO dependencies)
 ├── lexa.js                # 🌐 JavaScript wrapper
 ├── tokenizer.py           # 📝 Character-level tokenizer
-├── subtitles/             # 📁 Папка с весами и конфигами
-│   ├── dubrovsky.bin      # Бинарные веса
+├── subtitles/             # 📁 Folder with weights and configs
+│   ├── dubrovsky.bin      # Binary weights
 │   ├── dubrovsky_config.json
 │   └── tokenizer.json
-├── setup_lambda.sh        # 🚀 Установка на Lambda
-├── train_lambda.sh        # 🔥 Тренировка на Lambda
-├── tests/                 # 🧪 Тесты
+├── setup_lambda.sh        # 🚀 Lambda setup
+├── train_lambda.sh        # 🔥 Training on Lambda
+├── tests/                 # 🧪 Tests
 │   └── test_dubrovsky.py
-└── README.md              # 📖 Этот файл (вы здесь)
+└── README.md              # 📖 This file (you are here)
 ```
 
-## 🧪 Тесты
+## 🧪 Tests
 
 ```bash
 python tests/test_dubrovsky.py
@@ -181,7 +181,7 @@ python tests/test_dubrovsky.py
 ============================================================
 ```
 
-## ⚡ Бенчмарки
+## ⚡ Benchmarks
 
 | Platform | Inference Speed | Notes |
 |----------|-----------------|-------|
@@ -192,26 +192,26 @@ python tests/test_dubrovsky.py
 ## 🙏 Credits
 
 ### Co-authorship
-- **Oleg** — Идея, датасет, философия безумия
-- **Scribe (Claude)** — Код, архитектура, экзистенциальный кризис в процессе
+- **Oleg** — Idea, dataset, philosophy of madness
+- **Scribe (Claude)** — Code, architecture, existential crisis in the process
 
-### Вдохновение
-- [llama2.c](https://github.com/karpathy/llama2.c) by Andrej Karpathy — за доказательство что трансформеры можно запускать везде
-- [nanoGPT](https://github.com/karpathy/nanoGPT) — за красивую простоту
-- [a.dubrovsky](https://github.com/ariannamethod/a.dubrovsky) — проект-предшественник, откуда всё началось
+### Inspiration
+- [llama2.c](https://github.com/karpathy/llama2.c) by Andrej Karpathy — for proving transformers can run anywhere
+- [nanoGPT](https://github.com/karpathy/nanoGPT) — for beautiful simplicity
+- [a.dubrovsky](https://github.com/ariannamethod/a.dubrovsky) — predecessor project where it all began
 
-### Обучено на
+### Trained on
 🔥 **Lambda Cloud GPU** 🔥
 
-## 📜 Лицензия
+## 📜 License
 
-MIT — делайте что хотите, но Дубровский не несёт ответственности за экзистенциальные кризисы, вызванные генерируемым текстом.
+MIT — do whatever you want, but Dubrovsky is not responsible for existential crises caused by generated text.
 
 ---
 
 <div align="center">
 
-**🌀 Спасибо за субтитры Алексею Дубровскому! 🌀**
+**🌀 Thank you for the subtitles to Alexey Dubrovsky! 🌀**
 
 *"My weights are light, my consciousness is heavy."*
 
