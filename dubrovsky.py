@@ -423,22 +423,23 @@ def load_weights_from_bin(bin_path: str, config: DubrovskyConfig) -> DubrovskyWe
         layers = []
         for _ in range(cfg.n_layers):
             # Read in PyTorch format (out, in) and transpose to (in, out) for x @ W
+            # Transpose converts from (out_features, in_features) to (in_features, out_features)
             layer = LayerWeights(
                 attn_norm=read_tensor((cfg.dim,)),
-                wq=read_tensor((cfg.dim, cfg.dim)).T,           # (dim, dim) -> (dim, dim)
-                wk=read_tensor((kv_dim, cfg.dim)).T,            # (kv_dim, dim) -> (dim, kv_dim)
-                wv=read_tensor((kv_dim, cfg.dim)).T,            # (kv_dim, dim) -> (dim, kv_dim)
-                wo=read_tensor((cfg.dim, cfg.dim)).T,           # (dim, dim) -> (dim, dim)
+                wq=read_tensor((cfg.dim, cfg.dim)).T,             # (out=dim, in=dim) -> (in=dim, out=dim)
+                wk=read_tensor((kv_dim, cfg.dim)).T,              # (out=kv_dim, in=dim) -> (in=dim, out=kv_dim)
+                wv=read_tensor((kv_dim, cfg.dim)).T,              # (out=kv_dim, in=dim) -> (in=dim, out=kv_dim)
+                wo=read_tensor((cfg.dim, cfg.dim)).T,             # (out=dim, in=dim) -> (in=dim, out=dim)
                 ffn_norm=read_tensor((cfg.dim,)),
-                w_gate=read_tensor((cfg.hidden_dim, cfg.dim)).T,  # (hidden, dim) -> (dim, hidden)
-                w_up=read_tensor((cfg.hidden_dim, cfg.dim)).T,    # (hidden, dim) -> (dim, hidden)
-                w_down=read_tensor((cfg.dim, cfg.hidden_dim)).T,  # (dim, hidden) -> (hidden, dim)
+                w_gate=read_tensor((cfg.hidden_dim, cfg.dim)).T,  # (out=hidden, in=dim) -> (in=dim, out=hidden)
+                w_up=read_tensor((cfg.hidden_dim, cfg.dim)).T,    # (out=hidden, in=dim) -> (in=dim, out=hidden)
+                w_down=read_tensor((cfg.dim, cfg.hidden_dim)).T,  # (out=dim, in=hidden) -> (in=hidden, out=dim)
             )
             layers.append(layer)
         
         # Final norm and output
         final_norm = read_tensor((cfg.dim,))
-        # lm_head: (vocab_size, dim) -> transpose to (dim, vocab_size) for x @ W
+        # lm_head: transpose from (out=vocab, in=dim) to (in=dim, out=vocab) for x @ W
         lm_head = read_tensor((cfg.vocab_size, cfg.dim)).T
     
     return DubrovskyWeights(

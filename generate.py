@@ -106,6 +106,20 @@ def generate_text(
     # Decode
     output_text = tokenizer.decode(output_tokens)
     
+    # Trim to last complete sentence to avoid mid-word cutoff
+    # Find the last sentence-ending punctuation in the generated part
+    generated_part = output_text[len(prompt):]
+    sentence_endings = ['.', '!', '?']
+    last_end = -1
+    for ending in sentence_endings:
+        pos = generated_part.rfind(ending)
+        if pos > last_end:
+            last_end = pos
+    
+    # If we found a sentence ending, trim there
+    if last_end > 0:
+        output_text = prompt + generated_part[:last_end + 1]
+    
     if verbose:
         new_tokens = len(output_tokens) - len(prompt_tokens)
         tokens_per_sec = new_tokens / elapsed if elapsed > 0 else 0

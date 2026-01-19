@@ -785,6 +785,10 @@ int main(int argc, char** argv) {
             forward(&config, &weights, &state, token, pos++);
         }
         
+        // Generate into buffer so we can trim to last sentence
+        char output_buffer[4096];
+        int output_len = 0;
+        
         // Generate
         clock_t start = clock();
         int generated = 0;
@@ -793,8 +797,10 @@ int main(int argc, char** argv) {
             int next = sample_top_p(state.logits, config.vocab_size, temperature, top_p);
             char c = decode_char(&tokenizer, next);
             
-            printf("%c", c);
-            fflush(stdout);
+            // Store in buffer
+            if (output_len < (int)sizeof(output_buffer) - 1) {
+                output_buffer[output_len++] = c;
+            }
             generated++;
             
             // Stop on newline (token 0 = '\n' in our tokenizer)
@@ -804,13 +810,33 @@ int main(int argc, char** argv) {
             
             forward(&config, &weights, &state, next, pos++);
         }
+        output_buffer[output_len] = '\0';
+        
+        // Trim to last complete sentence to avoid mid-word cutoff
+        int last_end = -1;
+        for (int i = output_len - 1; i >= 0; i--) {
+            if (output_buffer[i] == '.' || output_buffer[i] == '!' || output_buffer[i] == '?') {
+                last_end = i;
+                break;
+            }
+        }
+        if (last_end > 0) {
+            output_buffer[last_end + 1] = '\0';
+        }
+        
+        // Print the trimmed output
+        printf("%s", output_buffer);
         
         clock_t end = clock();
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
         
-        printf("============================================================\n");
-        printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n", 
-               generated, elapsed, generated / elapsed);
+        printf("\n============================================================\n");
+        if (elapsed > 0.001) {
+            printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n", 
+                   generated, elapsed, generated / elapsed);
+        } else {
+            printf("⏱️  Generated %d tokens\n", generated);
+        }
     }
     
     // Cleanup
