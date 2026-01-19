@@ -1,4 +1,4 @@
-# 🌀 ДУБРОВСКИЙ 🌀
+# 🌀 dubrovsky 🌀
 
 > *"I am become model, destroyer of coherence."*
 > — Alexey Dubrovsky, during inference
