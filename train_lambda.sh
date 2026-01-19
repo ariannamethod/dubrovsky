@@ -59,8 +59,11 @@ python train.py \
     --batch_size "$BATCH_SIZE" \
     --learning_rate "$LEARNING_RATE"
 
+# Capture exit code immediately
+TRAIN_EXIT_CODE=$?
+
 # Check if training succeeded
-if [ $? -eq 0 ]; then
+if [ $TRAIN_EXIT_CODE -eq 0 ]; then
     echo ""
     echo "✅ Training complete!"
     echo ""
@@ -68,26 +71,38 @@ if [ $? -eq 0 ]; then
     # Export weights
     if [ -f "$CHECKPOINT_DIR/dubrovsky_final.pt" ]; then
         echo "📦 Exporting weights to binary format..."
-        python export_weights.py \
+        
+        if python export_weights.py \
             "$CHECKPOINT_DIR/dubrovsky_final.pt" \
             "$CHECKPOINT_DIR/dubrovsky.bin" \
-            --verify
-        
+            --verify; then
+            
+            echo ""
+            echo "📊 Final files:"
+            ls -lh "$CHECKPOINT_DIR/"
+            
+            echo ""
+            echo "🎉 All done! Model is ready for inference."
+            echo ""
+            echo "To test generation:"
+            echo "   python generate.py --prompt 'Q: What is life?'"
+            echo ""
+            echo "To copy weights to your local machine:"
+            echo "   scp lambda:$(pwd)/$CHECKPOINT_DIR/dubrovsky.bin ."
+        else
+            echo ""
+            echo "⚠️  Weight export failed! You can try manually:"
+            echo "   python export_weights.py $CHECKPOINT_DIR/dubrovsky_final.pt $CHECKPOINT_DIR/dubrovsky.bin --verify"
+        fi
+    else
         echo ""
-        echo "📊 Final files:"
-        ls -lh "$CHECKPOINT_DIR/"
-        
-        echo ""
-        echo "🎉 All done! Model is ready for inference."
-        echo ""
-        echo "To test generation:"
-        echo "   python generate.py --prompt 'Q: What is life?'"
-        echo ""
-        echo "To copy weights to your local machine:"
-        echo "   scp lambda:$(pwd)/$CHECKPOINT_DIR/dubrovsky.bin ."
+        echo "⚠️  Final checkpoint not found: $CHECKPOINT_DIR/dubrovsky_final.pt"
+        echo "   Check if training completed all iterations."
+        echo "   Available checkpoints:"
+        ls -la "$CHECKPOINT_DIR/"*.pt 2>/dev/null || echo "   No .pt files found"
     fi
 else
     echo ""
-    echo "❌ Training failed!"
+    echo "❌ Training failed with exit code $TRAIN_EXIT_CODE!"
     exit 1
 fi

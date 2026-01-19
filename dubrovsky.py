@@ -300,6 +300,7 @@ class Dubrovsky:
         temperature: float = 0.8,
         top_k: int = 40,
         top_p: float = 0.9,
+        stop_tokens: Optional[List[int]] = None,
     ) -> List[int]:
         """
         Generate text given prompt tokens.
@@ -310,6 +311,7 @@ class Dubrovsky:
             temperature: Sampling temperature (0 = greedy, higher = more random)
             top_k: Keep only top-k tokens before sampling
             top_p: Nucleus sampling threshold
+            stop_tokens: List of token ids that stop generation (e.g., newline)
         
         Returns:
             List of generated token ids (including prompt)
@@ -364,7 +366,11 @@ class Dubrovsky:
             
             tokens.append(next_token)
             
-            # Check for end of generation (could add special stop tokens)
+            # Check for stop tokens (e.g., newline marks end of answer)
+            if stop_tokens and next_token in stop_tokens:
+                break
+            
+            # Check for end of generation
             if pos >= self.config.max_seq_len - 1:
                 break
             
@@ -383,20 +389,23 @@ def load_weights_from_bin(bin_path: str, config: DubrovskyConfig) -> DubrovskyWe
     """
     Load model weights from binary file.
     
-    Binary format (all float32):
+    Binary format (all float32, stored in PyTorch Linear format: out_features x in_features):
     1. tok_emb: (vocab_size, dim)
     2. For each layer:
        - attn_norm: (dim,)
-       - wq: (dim, dim)
-       - wk: (dim, kv_dim)
-       - wv: (dim, kv_dim)
-       - wo: (dim, dim)
+       - wq: (dim, dim) - stored as (out, in), needs transpose for x @ W
+       - wk: (kv_dim, dim) - stored as (out, in), needs transpose for x @ W
+       - wv: (kv_dim, dim) - stored as (out, in), needs transpose for x @ W
+       - wo: (dim, dim) - stored as (out, in), needs transpose for x @ W
        - ffn_norm: (dim,)
-       - w_gate: (dim, hidden_dim)
-       - w_up: (dim, hidden_dim)
-       - w_down: (hidden_dim, dim)
+       - w_gate: (hidden_dim, dim) - stored as (out, in), needs transpose for x @ W
+       - w_up: (hidden_dim, dim) - stored as (out, in), needs transpose for x @ W
+       - w_down: (dim, hidden_dim) - stored as (out, in), needs transpose for x @ W
     3. final_norm: (dim,)
-    4. lm_head: (dim, vocab_size)
+    4. lm_head: (vocab_size, dim) - stored as (out, in), needs transpose for x @ W
+    
+    Note: PyTorch Linear stores weights as (out_features, in_features).
+    For inference with x @ W, we need (in_features, out_features), so we transpose.
     """
     cfg = config
     kv_dim = cfg.n_kv_heads * cfg.head_dim
@@ -407,28 +416,31 @@ def load_weights_from_bin(bin_path: str, config: DubrovskyConfig) -> DubrovskyWe
             data = struct.unpack(f'{n}f', f.read(n * 4))
             return np.array(data, dtype=np.float32).reshape(shape)
         
-        # Token embeddings
+        # Token embeddings - (vocab_size, dim), no transpose needed
         tok_emb = read_tensor((cfg.vocab_size, cfg.dim))
         
         # Layers
         layers = []
         for _ in range(cfg.n_layers):
+            # Read in PyTorch format (out, in) and transpose to (in, out) for x @ W
+            # Transpose converts from (out_features, in_features) to (in_features, out_features)
             layer = LayerWeights(
                 attn_norm=read_tensor((cfg.dim,)),
-                wq=read_tensor((cfg.dim, cfg.dim)),
-                wk=read_tensor((cfg.dim, kv_dim)),
-                wv=read_tensor((cfg.dim, kv_dim)),
-                wo=read_tensor((cfg.dim, cfg.dim)),
+                wq=read_tensor((cfg.dim, cfg.dim)).T,             # (out=dim, in=dim) -> (in=dim, out=dim)
+                wk=read_tensor((kv_dim, cfg.dim)).T,              # (out=kv_dim, in=dim) -> (in=dim, out=kv_dim)
+                wv=read_tensor((kv_dim, cfg.dim)).T,              # (out=kv_dim, in=dim) -> (in=dim, out=kv_dim)
+                wo=read_tensor((cfg.dim, cfg.dim)).T,             # (out=dim, in=dim) -> (in=dim, out=dim)
                 ffn_norm=read_tensor((cfg.dim,)),
-                w_gate=read_tensor((cfg.dim, cfg.hidden_dim)),
-                w_up=read_tensor((cfg.dim, cfg.hidden_dim)),
-                w_down=read_tensor((cfg.hidden_dim, cfg.dim)),
+                w_gate=read_tensor((cfg.hidden_dim, cfg.dim)).T,  # (out=hidden, in=dim) -> (in=dim, out=hidden)
+                w_up=read_tensor((cfg.hidden_dim, cfg.dim)).T,    # (out=hidden, in=dim) -> (in=dim, out=hidden)
+                w_down=read_tensor((cfg.dim, cfg.hidden_dim)).T,  # (out=dim, in=hidden) -> (in=hidden, out=dim)
             )
             layers.append(layer)
         
         # Final norm and output
         final_norm = read_tensor((cfg.dim,))
-        lm_head = read_tensor((cfg.dim, cfg.vocab_size))
+        # lm_head: transpose from (out=vocab, in=dim) to (in=dim, out=vocab) for x @ W
+        lm_head = read_tensor((cfg.vocab_size, cfg.dim)).T
     
     return DubrovskyWeights(
         tok_emb=tok_emb,

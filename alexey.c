@@ -609,6 +609,7 @@ void print_usage(char* prog) {
     printf("  -P <topp>         Top-p sampling (default: 0.9)\n");
     printf("  -s <seed>         Random seed\n");
     printf("  -i                Interactive mode\n");
+    printf("  --no_stop         Disable stop on newline\n");
     printf("  --tokenizer <path> Path to tokenizer.json\n");
     printf("\nExample:\n");
     printf("  %s subtitles/dubrovsky.bin -p \"Q: What is life?\"\n", prog);
@@ -641,6 +642,7 @@ int main(int argc, char** argv) {
     float temperature = 0.8f;
     float top_p = 0.9f;
     int interactive = 0;
+    int stop_on_newline = 1;  // Stop on newline by default
     unsigned int seed = (unsigned int)time(NULL);
     
     for (int i = 2; i < argc; i++) {
@@ -656,6 +658,8 @@ int main(int argc, char** argv) {
             seed = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-i") == 0) {
             interactive = 1;
+        } else if (strcmp(argv[i], "--no_stop") == 0) {
+            stop_on_newline = 0;
         } else if (strcmp(argv[i], "--tokenizer") == 0 && i + 1 < argc) {
             tokenizer_path = argv[++i];
         }
@@ -755,39 +759,84 @@ int main(int argc, char** argv) {
         printf("👋 Goodbye!\n");
     } else {
         // Single generation
-        printf("📝 Prompt: %s\n", prompt);
+        
+        // Auto-format: if prompt looks like a question without "A:", add it
+        char full_prompt[2048];
+        int prompt_len = strlen(prompt);
+        
+        // Check if prompt ends with "?" and doesn't contain "A:" 
+        if (prompt_len > 0 && prompt[prompt_len-1] == '?' && strstr(prompt, "A:") == NULL) {
+            snprintf(full_prompt, sizeof(full_prompt), "%s\nA: ", prompt);
+        } else {
+            snprintf(full_prompt, sizeof(full_prompt), "%s", prompt);
+        }
+        
+        prompt_len = strlen(full_prompt);
+        
+        printf("📝 Prompt: %s\n", full_prompt);
         printf("%s", "============================================================\n");
         
         int pos = 0;
-        int prompt_len = strlen(prompt);
         
         // Process prompt
-        printf("%s", prompt);
+        printf("%s", full_prompt);
         for (int i = 0; i < prompt_len; i++) {
-            int token = encode_char(&tokenizer, prompt[i]);
+            int token = encode_char(&tokenizer, full_prompt[i]);
             forward(&config, &weights, &state, token, pos++);
         }
         
+        // Generate into buffer so we can trim to last sentence
+        char output_buffer[4096];
+        int output_len = 0;
+        
         // Generate
         clock_t start = clock();
+        int generated = 0;
         
         for (int i = 0; i < max_tokens && pos < config.max_seq_len; i++) {
             int next = sample_top_p(state.logits, config.vocab_size, temperature, top_p);
             char c = decode_char(&tokenizer, next);
             
-            printf("%c", c);
-            fflush(stdout);
+            // Store in buffer
+            if (output_len < (int)sizeof(output_buffer) - 1) {
+                output_buffer[output_len++] = c;
+            }
+            generated++;
+            
+            // Stop on newline (token 0 = '\n' in our tokenizer)
+            if (stop_on_newline && c == '\n') {
+                break;
+            }
             
             forward(&config, &weights, &state, next, pos++);
         }
+        output_buffer[output_len] = '\0';
+        
+        // Trim to last complete sentence to avoid mid-word cutoff
+        int last_end = -1;
+        for (int i = output_len - 1; i >= 0; i--) {
+            if (output_buffer[i] == '.' || output_buffer[i] == '!' || output_buffer[i] == '?') {
+                last_end = i;
+                break;
+            }
+        }
+        if (last_end >= 0) {
+            output_buffer[last_end + 1] = '\0';
+        }
+        
+        // Print the trimmed output
+        printf("%s", output_buffer);
         
         clock_t end = clock();
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
         
-        printf("\n");
-        printf("============================================================\n");
-        printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n", 
-               max_tokens, elapsed, max_tokens / elapsed);
+        printf("\n============================================================\n");
+        if (elapsed > 0.001) {
+            printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n", 
+                   generated, elapsed, generated / elapsed);
+        } else {
+            printf("⏱️  Generated %d tokens\n", generated);
+        }
     }
     
     // Cleanup
