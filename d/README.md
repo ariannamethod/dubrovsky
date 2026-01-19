@@ -229,7 +229,7 @@ python tests/test_dubrovsky.py
 
 ## 📜 License
 
-MIT — do whatever you want, but Dubrovsky is not responsible for existential crises caused by generated text.
+gpl3 — do whatever you want, but Dubrovsky is not responsible for existential crises caused by generated text.
 
 ---
 
