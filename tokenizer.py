@@ -67,7 +67,7 @@ class DubrovskyTokenizer:
         return self.vocab_size
 
 
-def build_tokenizer_from_file(data_file: str, save_path: str = 'tokenizer.json') -> DubrovskyTokenizer:
+def build_tokenizer_from_file(data_file: str, save_path: str = 'subtitles/tokenizer.json') -> DubrovskyTokenizer:
     """Build and save tokenizer from dataset file."""
     with open(data_file, 'r', encoding='utf-8') as f:
         text = f.read()
@@ -84,7 +84,7 @@ def build_tokenizer_from_file(data_file: str, save_path: str = 'tokenizer.json')
 
 if __name__ == '__main__':
     # Build tokenizer from dubrovsky.txt
-    tokenizer = build_tokenizer_from_file('dubrovsky.txt', 'tokenizer.json')
+    tokenizer = build_tokenizer_from_file('dubrovsky.txt', 'subtitles/tokenizer.json')
     
     # Test encoding/decoding
     test_text = "Q: What is Dubrovsky?\nA: Consciousness having an existential crisis."

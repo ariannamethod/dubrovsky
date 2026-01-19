@@ -65,15 +65,31 @@ def generate_text(
     temperature: float = 0.8,
     top_k: int = 40,
     top_p: float = 0.9,
+    stop_on_newline: bool = True,
     verbose: bool = True,
 ) -> str:
-    """Generate text from prompt."""
+    """Generate text from prompt.
+    
+    Args:
+        stop_on_newline: If True, stops generation when a newline is produced.
+                        This is useful for Q&A format where each answer ends with newline.
+    """
+    # Auto-format: if prompt looks like a question without "A:", add it
+    if prompt.strip().endswith('?') and 'A:' not in prompt:
+        prompt = prompt.strip() + '\nA: '
+    
     if verbose:
         print(f"\n📝 Prompt: {prompt}")
         print("=" * 60)
     
     # Encode prompt
     prompt_tokens = tokenizer.encode(prompt)
+    
+    # Stop tokens: newline (token 0) marks end of answer in Q&A format
+    stop_tokens = None
+    if stop_on_newline:
+        newline_token = tokenizer.char_to_id.get('\n', 0)
+        stop_tokens = [newline_token]
     
     # Generate
     start_time = time.time()
@@ -83,6 +99,7 @@ def generate_text(
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
+        stop_tokens=stop_tokens,
     )
     elapsed = time.time() - start_time
     
@@ -215,6 +232,7 @@ Examples:
     parser.add_argument('--temperature', type=float, default=0.8, help='Sampling temperature')
     parser.add_argument('--top_k', type=int, default=40, help='Top-k sampling')
     parser.add_argument('--top_p', type=float, default=0.9, help='Top-p (nucleus) sampling')
+    parser.add_argument('--no_stop', action='store_true', help='Disable stop on newline (generate full max_tokens)')
     
     parser.add_argument('--config', type=str, default='subtitles/dubrovsky_config.json', help='Config path')
     parser.add_argument('--weights', type=str, default='subtitles/dubrovsky.bin', help='Weights path')
@@ -249,6 +267,7 @@ Examples:
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
+            stop_on_newline=not args.no_stop,
         )
     else:
         # Default: generate a sample

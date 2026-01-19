@@ -181,13 +181,20 @@ python tests/test_dubrovsky.py
 ============================================================
 ```
 
-## ⚡ Benchmarks
+## ⚡ Benchmarks (v1.0 - Lambda H100 Trained)
 
-| Platform | Inference Speed | Notes |
-|----------|-----------------|-------|
-| Python (NumPy) | ~10-20 tok/s | Pure vibes |
-| C (alexey) | ~100-200 tok/s | Zero deps |
-| PyTorch | ~50-100 tok/s | CUDA |
+| Platform | Inference Speed | Status | Notes |
+|----------|-----------------|--------|-------|
+| **C (alexey)** | ~120-180 tok/s | ✅ Working | CPU, zero dependencies |
+| **Python (NumPy)** | ~240-280 tok/s | ✅ Working | Pure NumPy, no PyTorch needed |
+| **JavaScript (lexa.js)** | ~120 tok/s | ✅ Working | Uses C backend |
+| **PyTorch** | ~100 tok/s | ✅ Working | GPU/CPU |
+
+**Training Stats (Lambda H100):**
+- Time: ~1 hour
+- Iterations: 5000
+- Final loss: ~0.95
+- Dataset: 1.17MB (3231 QA pairs)
 
 ## 🙏 Credits
 
