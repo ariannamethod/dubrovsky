@@ -398,9 +398,12 @@ def train(config: TrainConfig, resume_path: Optional[str] = None):
         # Forward pass
         logits = model(x)
         loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
-        
+
+        # Scale loss for gradient accumulation (effective LR stays consistent)
+        scaled_loss = loss / config.gradient_accumulation_steps
+
         # Backward pass
-        loss.backward()
+        scaled_loss.backward()
         
         # Gradient accumulation
         if (it + 1) % config.gradient_accumulation_steps == 0:
