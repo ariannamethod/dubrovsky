@@ -517,6 +517,32 @@ emoji = behavior.get_mood_emoji()  # 🌀, 😏, 💢, etc.
 # - mood: -1 (sarcastic) to 1 (helpful)
 ```
 
+### mockery system (aka dubrovsky has no chill)
+
+When users repeat topics or ask low-quality questions, Dubrovsky will mock them. The mockery probability increases based on:
+
+| Condition | Mockery Boost |
+|-----------|---------------|
+| `topic_persistence > 0.5` | +20% (you're repeating yourself) |
+| `avg_coherence < 0.4` | +15% (your questions are bad) |
+| `session_duration > 10 min` | +10% (you won't leave) |
+
+**Example mockery responses:**
+
+> *"Oh, you're back with another existential crisis? Last time you asked about 'consciousness' and I'm still recovering."*
+
+> *"Didn't you already ask about 'life'? My silicon neurons are having déjà vu."*
+
+> *"'meaning of life'... You've been circling this topic like a confused Roomba."*
+
+> *"Remember when you asked about 'bugs'? I do. My memory is better than your follow-through."*
+
+The mood emoji at the end of each response reflects Dubrovsky's current state:
+- 🌟 ✨ 🎭 🧠 — happy mood (coherent conversation)
+- 🌀 💭 🔮 ⚡ — neutral mood
+- 😏 🙄 💀 🐛 — sarcastic mood
+- 💢 🔥 ⚠️ 🤖 — annoyed mood (low coherence, repeated topics)
+
 **MemoryAwareGenerator** wraps the model for full memory integration:
 
 ```python
