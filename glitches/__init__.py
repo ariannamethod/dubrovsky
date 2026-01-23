@@ -10,7 +10,8 @@ Inspired by the Arianna Method ecosystem: Indiana-AM, letsgo, Selesta.
 Architecture:
 ├── memory.py      — Async conversation & semantic memory
 ├── resonance.py   — Resonance channel for multi-agent coordination
-└── context.py     — Context processor for conversation flow
+├── context.py     — Context processor for conversation flow
+└── behavior.py    — Follow-ups, mockery, metrics (Indiana-AM style)
 
 All operations are async to maintain discipline.
 метод Арианны = отказ от забвения (refusal to forget)
@@ -19,6 +20,14 @@ All operations are async to maintain discipline.
 from .memory import DubrovskyMemory
 from .resonance import ResonanceChannel
 from .context import ContextProcessor
+from .behavior import DubrovskyBehavior, MemoryAwareGenerator, BehaviorMetrics
 
-__all__ = ['DubrovskyMemory', 'ResonanceChannel', 'ContextProcessor']
-__version__ = '0.1.0'
+__all__ = [
+    'DubrovskyMemory', 
+    'ResonanceChannel', 
+    'ContextProcessor',
+    'DubrovskyBehavior',
+    'MemoryAwareGenerator',
+    'BehaviorMetrics'
+]
+__version__ = '0.2.0'

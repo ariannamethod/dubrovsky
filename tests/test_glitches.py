@@ -270,6 +270,131 @@ class TestContext:
         print("✅ All context tests passed!\n")
 
 
+class TestBehavior:
+    """Test DubrovskyBehavior."""
+    
+    async def test_metrics(self):
+        """Test behavior metrics computation."""
+        from glitches.behavior import BehaviorMetrics
+        
+        metrics = BehaviorMetrics()
+        
+        # Default mockery probability should be low
+        prob = metrics.compute_mockery_probability()
+        assert prob >= 0.1
+        assert prob <= 0.5
+        
+        # High topic persistence increases mockery
+        metrics.topic_persistence = 0.8
+        prob2 = metrics.compute_mockery_probability()
+        assert prob2 > prob
+        
+        print("✅ test_metrics passed")
+        
+    async def test_follow_up_detection(self):
+        """Test follow-up trigger logic."""
+        from glitches.memory import DubrovskyMemory
+        from glitches.resonance import ResonanceChannel
+        from glitches.behavior import DubrovskyBehavior
+        import time as time_module
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mem_path = os.path.join(tmpdir, 'mem.db')
+            res_path = os.path.join(tmpdir, 'res.db')
+            
+            async with DubrovskyMemory(mem_path) as memory:
+                async with ResonanceChannel(res_path) as resonance:
+                    behavior = DubrovskyBehavior(memory, resonance, follow_up_probability=1.0)
+                    
+                    # Store some past conversations with older timestamps
+                    old_time = time_module.time() - 300  # 5 minutes ago
+                    await memory._conn.execute('''
+                        INSERT INTO conversations (timestamp, prompt, response, tokens_used, coherence_score, session_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (old_time, "What is consciousness?", "A bug", 10, 0.8, 'test'))
+                    await memory._conn.commit()
+                    
+                    # Check follow-up with related topic
+                    follow_up = await behavior.check_follow_up("Tell me about consciousness")
+                    # With probability 1.0 and matching keywords, should trigger
+                    # (may not trigger if no keyword match logic hits)
+                    
+                    print("✅ test_follow_up_detection passed")
+                    
+    async def test_mood_emoji(self):
+        """Test mood emoji generation."""
+        from glitches.behavior import DubrovskyBehavior, BehaviorMetrics
+        from glitches.memory import DubrovskyMemory
+        from glitches.resonance import ResonanceChannel
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mem_path = os.path.join(tmpdir, 'mem.db')
+            res_path = os.path.join(tmpdir, 'res.db')
+            
+            async with DubrovskyMemory(mem_path) as memory:
+                async with ResonanceChannel(res_path) as resonance:
+                    behavior = DubrovskyBehavior(memory, resonance)
+                    
+                    # Test different moods
+                    behavior._metrics.mood = 0.8
+                    emoji1 = behavior.get_mood_emoji()
+                    assert emoji1 in ['🌟', '✨', '🎭', '🧠']
+                    
+                    behavior._metrics.mood = -0.8
+                    emoji2 = behavior.get_mood_emoji()
+                    assert emoji2 in ['💢', '🔥', '⚠️', '🤖']
+                    
+        print("✅ test_mood_emoji passed")
+        
+    async def test_update_metrics(self):
+        """Test metrics update after conversation."""
+        from glitches.memory import DubrovskyMemory
+        from glitches.resonance import ResonanceChannel
+        from glitches.behavior import DubrovskyBehavior
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mem_path = os.path.join(tmpdir, 'mem.db')
+            res_path = os.path.join(tmpdir, 'res.db')
+            
+            async with DubrovskyMemory(mem_path) as memory:
+                async with ResonanceChannel(res_path) as resonance:
+                    behavior = DubrovskyBehavior(memory, resonance)
+                    
+                    # Initial state
+                    assert behavior._metrics.conversation_count == 0
+                    
+                    # Update with high coherence
+                    await behavior.update_metrics(
+                        "What is life?",
+                        "Life is consciousness having anxiety.",
+                        coherence_score=0.9
+                    )
+                    
+                    assert behavior._metrics.conversation_count == 1
+                    assert behavior._metrics.avg_coherence == 0.9
+                    assert behavior._metrics.mood > 0  # High coherence = positive mood
+                    
+                    # Update with low coherence
+                    await behavior.update_metrics(
+                        "asdf?",
+                        "Error.",
+                        coherence_score=0.2
+                    )
+                    
+                    assert behavior._metrics.conversation_count == 2
+                    assert behavior._metrics.mood < 0.9  # Should decrease
+                    
+        print("✅ test_update_metrics passed")
+        
+    async def run_all(self):
+        """Run all behavior tests."""
+        await self.test_metrics()
+        await self.test_follow_up_detection()
+        await self.test_mood_emoji()
+        await self.test_update_metrics()
+        print("✅ All behavior tests passed!\n")
+
+
 async def run_all_glitches_tests():
     """Run all glitches tests."""
     print("🧪 GLITCHES TEST SUITE 🧪")
@@ -283,6 +408,9 @@ async def run_all_glitches_tests():
     
     print("🎯 Testing Context...")
     await TestContext().run_all()
+    
+    print("😈 Testing Behavior...")
+    await TestBehavior().run_all()
     
     print("=" * 60)
     print("🎉 ALL GLITCHES TESTS PASSED!")

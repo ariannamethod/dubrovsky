@@ -413,7 +413,8 @@ dubrovsky/
 │   ├── __init__.py        # package init
 │   ├── memory.py          # conversation & semantic memory
 │   ├── resonance.py       # event stream for multi-agent coordination
-│   └── context.py         # context processor for conversation flow
+│   ├── context.py         # context processor for conversation flow
+│   └── behavior.py        # follow-ups, mockery, metrics (Indiana-AM style)
 ├── setup_lambda.sh        # 🚀 Lambda GPU setup
 ├── train_lambda.sh        # 🔥 Lambda training script
 ├── tests/                 # 🧪 test suite
@@ -490,6 +491,46 @@ resonance(id, timestamp, agent, event_type, data_json, sentiment, resonance_dept
 
 Memories naturally decay over time. Call `await memory.apply_decay(0.95)` periodically to age memories. Low-access memories fade faster. Use `await memory.prune_decayed(0.01)` to remove forgotten memories.
 
+### behavior engine (indiana-am style)
+
+Dubrovsky now has **personality-driven follow-ups** inspired by Indiana-AM's Genesis pipeline:
+
+```python
+from glitches import DubrovskyBehavior, MemoryAwareGenerator
+
+# Behavior engine tracks metrics and triggers follow-ups
+behavior = DubrovskyBehavior(memory, resonance)
+
+# Check if we should reference a past conversation (15% probability)
+follow_up = await behavior.check_follow_up("What is life?")
+if follow_up:
+    # Dubrovsky might say: "Didn't you already ask about 'consciousness'? 
+    # My silicon neurons are having déjà vu."
+    pass
+
+# Get mood emoji (like Indiana's Genesis6)
+emoji = behavior.get_mood_emoji()  # 🌀, 😏, 💢, etc.
+
+# Metrics influence behavior:
+# - topic_persistence: how often user repeats topics (triggers mockery)
+# - avg_coherence: quality of user questions
+# - mood: -1 (sarcastic) to 1 (helpful)
+```
+
+**MemoryAwareGenerator** wraps the model for full memory integration:
+
+```python
+from glitches import MemoryAwareGenerator
+
+async with MemoryAwareGenerator(model, tokenizer) as generator:
+    response, metadata = await generator.generate("What is consciousness?")
+    
+    print(response)  # "A bug in the universe's beta release. 🌀"
+    print(metadata['mood_emoji'])  # 🌀
+    print(metadata['follow_up_triggered'])  # True/False
+    print(metadata['metrics'])  # coherence, mood, etc.
+```
+
 ---
 
 ## tests (aka proof it works)
@@ -507,6 +548,7 @@ python tests/test_glitches.py    # memory system tests
 - ✅ Memory: conversation storage, semantic memory, decay
 - ✅ Resonance: event emission, inter-agent messaging
 - ✅ Context: context preparation, response recording
+- ✅ Behavior: metrics, follow-up detection, mood, mockery
 
 **sample output:**
 ```
