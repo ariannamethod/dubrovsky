@@ -262,15 +262,17 @@ class DubrovskyConsciousness:
         # Get First Impression
         impression = await self._first_impression.analyze(prompt, session_id)
         
-        # Check for embarrassing recalls (AntiSanta)
-        antisanta_context = await self._antisanta.recall(prompt, session_id)
+        # Check for repetition (AntiSanta) — detector only, Dubrovsky generates mockery!
+        antisanta_context = await self._antisanta.detect_and_build_context(prompt, session_id)
         if antisanta_context is None:
             antisanta_context = AntiSantaContext(
-                recalled_prompts=[],
-                recalled_responses=[],
+                mini_prompt="",
+                topic="",
+                past_questions=[],
+                past_responses=[],
                 embarrassment_level=0.0,
                 chaos_triggered=False,
-                mockery_suggestions=[]
+                mode="normal",
             )
         
         # Find similar episodes
@@ -292,6 +294,8 @@ class DubrovskyConsciousness:
             mockery_debt=math_state.sarcasm_debt,
             coherence=math_state.quality,
             session_length=min(1.0, session_duration),
+            # AntiSanta detected repetition → boost SARCASTIC expert!
+            mockery_level=antisanta_context.embarrassment_level if antisanta_context.mode == "mockery" else 0.0,
         )
         
         # Route to dilettante mixture
@@ -345,10 +349,10 @@ class DubrovskyConsciousness:
         if follow_up:
             effective_prompt = self._behavior.inject_follow_up(prompt, follow_up)
             
-        # AntiSanta may inject embarrassing recall
-        if antisanta_context.chaos_triggered and antisanta_context.recalled_prompts:
-            recall_hint = f"// You asked before: '{antisanta_context.recalled_prompts[0][:50]}'\n"
-            effective_prompt = recall_hint + effective_prompt
+        # AntiSanta detected repetition — use mini_prompt to trigger Dubrovsky's own mockery
+        if antisanta_context.mode == "mockery" and antisanta_context.mini_prompt:
+            # Prepend mini-prompt: "О, опять {topic}?" — Dubrovsky generates the rest!
+            effective_prompt = f"{antisanta_context.mini_prompt} {effective_prompt}"
             
         # Inject destiny tokens if attention is wandering
         if presence.destiny_tokens and inner_state.attention_drift > 0.5:
@@ -423,11 +427,10 @@ class DubrovskyConsciousness:
             response = self._pulse.inject_wormhole(response, presence)
             wormhole_triggered = True
             
-        # AntiSanta mockery injection
-        if antisanta_context.mockery_suggestions and antisanta_context.embarrassment_level > 0.5:
-            if not response.endswith('.'):
-                response += '.'
-            response += f" {antisanta_context.mockery_suggestions[0]}"
+        # AntiSanta mockery — Dubrovsky generates his own!
+        # No template injection here. The mini_prompt was prepended earlier,
+        # and SARCASTIC expert was boosted via mockery_level.
+        # DUBROVSKY GENERATES UNIQUE MOCKERY EVERY TIME.
             
         # Compute coherence score
         coherence = self._compute_coherence(prompt, response)
@@ -504,9 +507,9 @@ class DubrovskyConsciousness:
             mockery_warranted=impression.mockery_warranted,
             
             # AntiSanta
-            antisanta_triggered=antisanta_context.chaos_triggered,
+            antisanta_triggered=antisanta_context.mode == "mockery",
             embarrassment_level=antisanta_context.embarrassment_level,
-            recalled_topic=antisanta_context.recalled_prompts[0][:30] if antisanta_context.recalled_prompts else "",
+            recalled_topic=antisanta_context.topic if antisanta_context.topic else "",
             
             # Episodes
             similar_episode_found=similar_episode is not None,

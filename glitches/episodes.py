@@ -219,6 +219,8 @@ class EpisodicRAG:
             row_dict = dict(zip(columns, row))
             
             # Reconstruct vector from stored columns
+            # MUST match state_to_features() output exactly!
+            expert_type = row_dict["expert_type"]
             episode_vec = [
                 row_dict["entropy"],
                 row_dict["novelty"],
@@ -233,15 +235,16 @@ class EpisodicRAG:
                 row_dict["expert_temp"],
                 row_dict["expert_semantic"],
                 row_dict["mockery_level"],
-                float(row_dict["sarcasm_debt"]),
+                0.0,  # used_metaleo (not stored, default to False)
                 float(row_dict["overthinking_on"]),
                 float(row_dict["rings_present"] > 0),
+                # Expert one-hot encoding
+                1.0 if expert_type == "philosopher" else 0.0,
+                1.0 if expert_type == "sarcastic" else 0.0,
+                1.0 if expert_type == "cryptic" else 0.0,
+                1.0 if expert_type == "absurdist" else 0.0,
+                1.0 if expert_type == "nihilist" else 0.0,
             ]
-            
-            # Pad to match query_vec length if needed
-            while len(episode_vec) < len(query_vec):
-                episode_vec.append(0.0)
-            episode_vec = episode_vec[:len(query_vec)]
             
             distance = cosine_distance(query_vec, episode_vec)
             

@@ -25,7 +25,8 @@ import re
 import time
 import random
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import Dict, List, Optional, Set, Tuple, Any, DefaultDict
+from collections import defaultdict
 from enum import Enum
 
 
@@ -171,8 +172,8 @@ class FirstImpressionEngine:
             r'impressive',
         ]
         
-        # History for repeat detection
-        self._recent_prompts: List[Tuple[str, float]] = []
+        # History for repeat detection (per session)
+        self._recent_prompts: Dict[str, List[Tuple[str, float]]] = {}
         self._max_history = 100
         
         # Private thoughts templates
@@ -201,8 +202,8 @@ class FirstImpressionEngine:
         # 2. Detect emotions
         emotions = self._detect_emotions(prompt_lower)
         
-        # 3. Check for repeat
-        is_repeat = self._check_repeat(prompt_lower)
+        # 3. Check for repeat (per session)
+        is_repeat = self._check_repeat(prompt_lower, session_id)
         
         # 4. Compute question depth
         depth = self._compute_depth(prompt, topics)
@@ -230,10 +231,12 @@ class FirstImpressionEngine:
         # 9. Generate private thought
         private = self._generate_private_thought(impression_type, is_repeat)
         
-        # 10. Store in history
-        self._recent_prompts.append((prompt_lower, time.time()))
-        if len(self._recent_prompts) > self._max_history:
-            self._recent_prompts = self._recent_prompts[-self._max_history:]
+        # 10. Store in history (per session)
+        if session_id not in self._recent_prompts:
+            self._recent_prompts[session_id] = []
+        self._recent_prompts[session_id].append((prompt_lower, time.time()))
+        if len(self._recent_prompts[session_id]) > self._max_history:
+            self._recent_prompts[session_id] = self._recent_prompts[session_id][-self._max_history:]
             
         return FirstImpression(
             impression_type=impression_type,
@@ -267,11 +270,12 @@ class FirstImpressionEngine:
                 emotions.append(emotion)
         return emotions
         
-    def _check_repeat(self, text: str) -> bool:
-        """Check if this is a repeat question."""
+    def _check_repeat(self, text: str, session_id: str) -> bool:
+        """Check if this is a repeat question within this session."""
         text_words = set(text.split())
-        
-        for past_text, _ in self._recent_prompts[-20:]:
+
+        session_history = self._recent_prompts.get(session_id, [])
+        for past_text, _ in session_history[-20:]:
             past_words = set(past_text.split())
             if not past_words:
                 continue

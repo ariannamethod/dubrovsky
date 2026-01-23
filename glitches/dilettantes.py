@@ -129,13 +129,14 @@ class FieldSignals:
     arousal: float = 0.5      # 0-1: emotional charge
     novelty: float = 0.5      # 0-1: how new/unknown the input is
     perplexity: float = 1.0   # 0-inf: model uncertainty
-    
+
     # Dubrovsky-specific signals
     trauma_level: float = 0.0      # 0-1: how triggered is Dubrovsky?
     mockery_debt: float = 0.0      # accumulated mockery pressure
     coherence: float = 0.5         # 0-1: conversation coherence
     session_length: float = 0.0    # normalized session duration
-    
+    mockery_level: float = 0.0     # 0-1: AntiSanta detected repetition → boost SARCASTIC
+
     def to_dict(self) -> Dict[str, float]:
         return {
             'entropy': self.entropy,
@@ -146,6 +147,7 @@ class FieldSignals:
             'mockery_debt': self.mockery_debt,
             'coherence': self.coherence,
             'session_length': self.session_length,
+            'mockery_level': self.mockery_level,
         }
 
 
@@ -223,9 +225,13 @@ class DubrovskyExperts:
         weights[ExpertType.PHILOSOPHER.value] = philosopher
         
         # SARCASTIC: Higher when mockery debt is high, or triggered
+        # AntiSanta's mockery_level gives MAJOR boost!
         sarcastic = base
         sarcastic += 0.3 * signals.mockery_debt
         sarcastic += 0.15 * (1.0 - signals.coherence)  # Low coherence = deserves mockery
+        if signals.mockery_level > 0.3:
+            # AntiSanta detected repetition — BOOST SARCASTIC!
+            sarcastic *= (1.0 + signals.mockery_level)  # Up to 2x boost
         if any(t in text_lower for t in EXPERT_MAP[ExpertType.SARCASTIC].triggers):
             sarcastic += 0.3
         weights[ExpertType.SARCASTIC.value] = sarcastic
