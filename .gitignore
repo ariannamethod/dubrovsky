@@ -53,3 +53,7 @@ Thumbs.db
 # Logs
 *.log
 wandb/
+
+# SQLite databases (test artifacts)
+glitches/*.db
+*.db
