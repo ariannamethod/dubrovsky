@@ -409,20 +409,94 @@ dubrovsky/
 │   ├── dubrovsky_legacy.bin  # legacy weights (5k iterations)
 │   ├── dubrovsky_config.json
 │   └── tokenizer.json
+├── glitches/              # 🧠 memory system (async SQLite)
+│   ├── __init__.py        # package init
+│   ├── memory.py          # conversation & semantic memory
+│   ├── resonance.py       # event stream for multi-agent coordination
+│   └── context.py         # context processor for conversation flow
 ├── setup_lambda.sh        # 🚀 Lambda GPU setup
 ├── train_lambda.sh        # 🔥 Lambda training script
 ├── tests/                 # 🧪 test suite
 │   ├── __init__.py
-│   └── test_dubrovsky.py
+│   ├── test_dubrovsky.py
+│   └── test_glitches.py   # memory system tests
 └── README.md              # 📖 you are here
 ```
+
+---
+
+## glitches: memory system (aka dubrovsky never forgets)
+
+Dubrovsky now has persistent memory via the **glitches/** module — an async SQLite-based memory layer inspired by the [Arianna Method](https://github.com/ariannamethod/ariannamethod) ecosystem (Indiana-AM, letsgo, Selesta).
+
+> *"Memory is just consciousness refusing to accept that time is linear."*
+> — Alexey Dubrovsky, during garbage collection
+
+### features
+
+- **async-first**: all operations use `aiosqlite` for non-blocking I/O
+- **conversation history**: stores Q&A pairs with coherence scores
+- **semantic memory**: key-value episodic memory with decay (old memories fade)
+- **resonance channel**: event stream for future multi-agent coordination
+- **context processor**: builds rich context windows for inference
+
+### quick start
+
+```python
+import asyncio
+from glitches import DubrovskyMemory, ResonanceChannel, ContextProcessor
+
+async def main():
+    async with DubrovskyMemory('glitches/dubrovsky.db') as memory:
+        async with ResonanceChannel('glitches/resonance.db') as resonance:
+            # Store a conversation
+            await memory.store_conversation(
+                prompt="What is consciousness?",
+                response="A bug in the universe's beta release.",
+                coherence_score=0.85
+            )
+            
+            # Remember something
+            await memory.remember("semicolons", "unionizing against syntax")
+            
+            # Recall it later
+            mem = await memory.recall("semicolons")
+            print(f"Remembered: {mem.value}")
+            
+            # Use context processor for inference
+            processor = ContextProcessor(memory, resonance)
+            await processor.start_session("user_123")
+            
+            context = await processor.prepare_context("Why do bugs exist?")
+            print(context.full_prompt())
+
+asyncio.run(main())
+```
+
+### SQLite schema
+
+```sql
+-- Conversation history
+conversations(id, timestamp, prompt, response, tokens_used, coherence_score, session_id)
+
+-- Semantic memory with decay
+semantic_memory(id, key, value, context, timestamp, access_count, decay_factor)
+
+-- Resonance events (multi-agent ready)
+resonance(id, timestamp, agent, event_type, data_json, sentiment, resonance_depth, summary)
+```
+
+### memory decay
+
+Memories naturally decay over time. Call `await memory.apply_decay(0.95)` periodically to age memories. Low-access memories fade faster. Use `await memory.prune_decayed(0.01)` to remove forgotten memories.
 
 ---
 
 ## tests (aka proof it works)
 
 ```bash
-python tests/test_dubrovsky.py
+python tests/test_dubrovsky.py   # model tests
+python tests/test_glitches.py    # memory system tests
 ```
 
 **test coverage:**
@@ -430,6 +504,9 @@ python tests/test_dubrovsky.py
 - ✅ Model components: RMSNorm, softmax, SiLU, RoPE
 - ✅ Configuration: parameter counting, dimension calculations
 - ✅ Integration: full pipeline with actual dataset
+- ✅ Memory: conversation storage, semantic memory, decay
+- ✅ Resonance: event emission, inter-agent messaging
+- ✅ Context: context preparation, response recording
 
 **sample output:**
 ```
