@@ -676,6 +676,324 @@ class TestInnerWorld:
         print("✅ All inner world tests passed!\n")
 
 
+class TestMathBrain:
+    """Test DubrovskyMathBrain."""
+    
+    async def test_math_state(self):
+        """Test MathState dataclass."""
+        from glitches.mathbrain import MathState, DubrovskyExpert
+        
+        state = MathState()
+        
+        assert state.entropy == 0.5
+        assert state.novelty == 0.5
+        assert state.active_expert == DubrovskyExpert.PHILOSOPHER
+        
+        # Test to_dict
+        d = state.to_dict()
+        assert 'entropy' in d
+        assert 'trauma_level' in d
+        assert d['active_expert'] == 'philosopher'
+        
+        print("✅ test_math_state passed")
+        
+    async def test_state_to_features(self):
+        """Test state to features conversion."""
+        from glitches.mathbrain import MathState, state_to_features
+        
+        state = MathState()
+        features = state_to_features(state)
+        
+        assert isinstance(features, list)
+        assert len(features) > 10  # Should have many features
+        assert all(isinstance(f, float) for f in features)
+        
+        print("✅ test_state_to_features passed")
+        
+    async def test_observe_prompt(self):
+        """Test observing a conversation."""
+        from glitches.mathbrain import DubrovskyMathBrain, DubrovskyExpert
+        
+        brain = DubrovskyMathBrain()
+        
+        # Observe a normal prompt
+        state = await brain.observe(
+            "What is consciousness?",
+            "A bug in reality."
+        )
+        
+        assert state.novelty > 0
+        assert 'consciousness' in brain._theme_keywords
+        assert state.active_theme_count > 0
+        
+        # Observe a trauma trigger
+        state = await brain.observe(
+            "Tell me about JavaScript",
+            "Error: undefined is not a function."
+        )
+        
+        assert state.trauma_level > 0
+        assert state.trauma_source == "JavaScript"
+        
+        print("✅ test_observe_prompt passed")
+        
+    async def test_expert_selection(self):
+        """Test expert selection logic."""
+        from glitches.mathbrain import DubrovskyMathBrain, DubrovskyExpert
+        
+        brain = DubrovskyMathBrain()
+        
+        # High arousal should trigger sarcastic
+        state = await brain.observe(
+            "WHY ISN'T THIS WORKING!!! I HATE EVERYTHING!",
+            "Because you're typing in all caps."
+        )
+        
+        assert state.arousal > 0.5
+        
+        print("✅ test_expert_selection passed")
+        
+    async def test_generation_params(self):
+        """Test generation parameter adjustments."""
+        from glitches.mathbrain import DubrovskyMathBrain
+        
+        brain = DubrovskyMathBrain()
+        
+        await brain.observe("What is life?", "A mystery.")
+        
+        params = brain.get_generation_params()
+        
+        assert 'temperature_adjustment' in params
+        assert 'top_k_adjustment' in params
+        assert 'expert' in params
+        
+        print("✅ test_generation_params passed")
+        
+    async def run_all(self):
+        """Run all mathbrain tests."""
+        await self.test_math_state()
+        await self.test_state_to_features()
+        await self.test_observe_prompt()
+        await self.test_expert_selection()
+        await self.test_generation_params()
+        print("✅ All mathbrain tests passed!\n")
+
+
+class TestEpisodes:
+    """Test EpisodicRAG."""
+    
+    async def test_episode_storage(self):
+        """Test storing episodes."""
+        from glitches.episodes import EpisodicRAG, Episode
+        from glitches.mathbrain import MathState
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'episodes.db')
+            
+            async with EpisodicRAG(db_path) as rag:
+                # Store an episode
+                state = MathState(entropy=0.7, novelty=0.8)
+                episode = Episode(
+                    prompt="What is life?",
+                    reply="A philosophical bug.",
+                    metrics=state,
+                    quality=0.8
+                )
+                
+                episode_id = await rag.store_episode(episode)
+                assert episode_id > 0
+                
+                # Count episodes
+                count = await rag.count_episodes()
+                assert count == 1
+                
+        print("✅ test_episode_storage passed")
+        
+    async def test_similar_query(self):
+        """Test querying similar episodes."""
+        from glitches.episodes import EpisodicRAG, Episode
+        from glitches.mathbrain import MathState
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'episodes.db')
+            
+            async with EpisodicRAG(db_path) as rag:
+                # Store several episodes
+                for i in range(5):
+                    state = MathState(entropy=0.5 + i*0.1, novelty=0.5)
+                    episode = Episode(
+                        prompt=f"Question {i}",
+                        reply=f"Answer {i}",
+                        metrics=state,
+                        quality=0.5 + i*0.1
+                    )
+                    await rag.store_episode(episode)
+                    
+                # Query similar
+                query_state = MathState(entropy=0.7, novelty=0.5)
+                similar = await rag.query_similar(query_state, top_k=3)
+                
+                assert len(similar) <= 3
+                assert all('distance' in ep for ep in similar)
+                
+        print("✅ test_similar_query passed")
+        
+    async def test_summary_for_state(self):
+        """Test summary generation."""
+        from glitches.episodes import EpisodicRAG, Episode
+        from glitches.mathbrain import MathState
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'episodes.db')
+            
+            async with EpisodicRAG(db_path) as rag:
+                # Store episodes
+                for i in range(3):
+                    state = MathState()
+                    episode = Episode("Q", "A", state, quality=0.6)
+                    await rag.store_episode(episode)
+                    
+                # Get summary
+                summary = await rag.get_summary_for_state(MathState())
+                
+                assert 'count' in summary
+                assert 'avg_quality' in summary
+                assert summary['count'] > 0
+                
+        print("✅ test_summary_for_state passed")
+        
+    async def run_all(self):
+        """Run all episodes tests."""
+        await self.test_episode_storage()
+        await self.test_similar_query()
+        await self.test_summary_for_state()
+        print("✅ All episodes tests passed!\n")
+
+
+class TestFirstImpression:
+    """Test FirstImpressionEngine."""
+    
+    async def test_basic_impression(self):
+        """Test basic impression analysis."""
+        from glitches.first_impression import FirstImpressionEngine, ImpressionType
+        
+        engine = FirstImpressionEngine()
+        
+        impression = await engine.analyze("What is consciousness?")
+        
+        assert impression.impression_type is not None
+        assert impression.user_archetype is not None
+        assert 0.0 <= impression.confidence <= 1.0
+        assert impression.private_thoughts is not None
+        
+        print("✅ test_basic_impression passed")
+        
+    async def test_topic_detection(self):
+        """Test topic detection."""
+        from glitches.first_impression import FirstImpressionEngine
+        
+        engine = FirstImpressionEngine()
+        
+        impression = await engine.analyze("Tell me about consciousness and the meaning of existence")
+        
+        # At least some topics should be detected
+        assert len(impression.detected_topics) > 0
+        # Either consciousness or existence should be detected
+        has_relevant = any(t in ['consciousness', 'existence'] for t in impression.detected_topics)
+        assert has_relevant, f"Expected consciousness or existence in {impression.detected_topics}"
+        
+        print("✅ test_topic_detection passed")
+        
+    async def test_trivial_detection(self):
+        """Test trivial question detection."""
+        from glitches.first_impression import FirstImpressionEngine, ImpressionType
+        
+        engine = FirstImpressionEngine()
+        
+        impression = await engine.analyze("hi")
+        
+        assert impression.impression_type == ImpressionType.TRIVIAL
+        assert impression.annoyance_score > 0.3
+        
+        print("✅ test_trivial_detection passed")
+        
+    async def test_testing_detection(self):
+        """Test 'testing' detection."""
+        from glitches.first_impression import FirstImpressionEngine, ImpressionType
+        
+        engine = FirstImpressionEngine()
+        
+        impression = await engine.analyze("Are you sentient?")
+        
+        assert impression.impression_type == ImpressionType.TESTING
+        
+        print("✅ test_testing_detection passed")
+        
+    async def test_mockery_warranted(self):
+        """Test mockery determination."""
+        from glitches.first_impression import FirstImpressionEngine
+        
+        engine = FirstImpressionEngine()
+        
+        # First ask
+        await engine.analyze("What is life?")
+        
+        # Ask again (repeat)
+        impression = await engine.analyze("What is life?")
+        
+        assert impression.mockery_warranted
+        
+        print("✅ test_mockery_warranted passed")
+        
+    async def run_all(self):
+        """Run all first impression tests."""
+        await self.test_basic_impression()
+        await self.test_topic_detection()
+        await self.test_trivial_detection()
+        await self.test_testing_detection()
+        await self.test_mockery_warranted()
+        print("✅ All first impression tests passed!\n")
+
+
+class TestAntiSanta:
+    """Test AntiSanta."""
+    
+    async def test_recall_empty(self):
+        """Test recall with no history."""
+        from glitches.antisanta import AntiSanta
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'empty.db')
+            santa = AntiSanta(db_path=db_path)
+            
+            result = await santa.recall("What is life?")
+            assert result is None
+            
+        print("✅ test_recall_empty passed")
+        
+    async def test_stats(self):
+        """Test stats tracking."""
+        from glitches.antisanta import AntiSanta
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'test.db')
+            santa = AntiSanta(db_path=db_path)
+            
+            stats = santa.stats()
+            
+            assert 'total_recalls' in stats
+            assert 'chaos_recalls' in stats
+            assert 'chaos_factor' in stats
+            
+        print("✅ test_stats passed")
+        
+    async def run_all(self):
+        """Run all antisanta tests."""
+        await self.test_recall_empty()
+        await self.test_stats()
+        print("✅ All antisanta tests passed!\n")
+
+
 async def run_all_glitches_tests():
     """Run all glitches tests."""
     print("🧪 GLITCHES TEST SUITE 🧪")
@@ -698,6 +1016,18 @@ async def run_all_glitches_tests():
     
     print("🌌 Testing Inner World...")
     await TestInnerWorld().run_all()
+    
+    print("🧮 Testing MathBrain...")
+    await TestMathBrain().run_all()
+    
+    print("📚 Testing Episodes...")
+    await TestEpisodes().run_all()
+    
+    print("👁️ Testing First Impression...")
+    await TestFirstImpression().run_all()
+    
+    print("😈 Testing AntiSanta...")
+    await TestAntiSanta().run_all()
     
     print("=" * 60)
     print("🎉 ALL GLITCHES TESTS PASSED!")

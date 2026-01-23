@@ -419,14 +419,18 @@ dubrovsky/
 │   ├── behavior.py        # follow-ups, mockery, metrics (Indiana-AM style)
 │   ├── pulse.py           # presence pulse, calendar drift, wormholes
 │   ├── inner_world.py     # async background processes (goroutines)
-│   └── consciousness.py   # FULL INTEGRATION of all modules
+│   ├── consciousness.py   # FULL INTEGRATION of all modules
+│   ├── mathbrain.py       # body awareness, experts, trauma (Leo style)
+│   ├── episodes.py        # episodic RAG memory (Leo style)
+│   ├── first_impression.py # first impression judgment (Leo/Haze style)
+│   └── antisanta.py       # AntiSanta: embarrassing memory recall 😈
 ├── generate_conscious.py  # 🎭 async inference with full consciousness
 ├── setup_lambda.sh        # 🚀 Lambda GPU setup
 ├── train_lambda.sh        # 🔥 Lambda training script
 ├── tests/                 # 🧪 test suite
 │   ├── __init__.py
 │   ├── test_dubrovsky.py
-│   └── test_glitches.py   # memory system tests
+│   └── test_glitches.py   # memory system tests (42 tests!)
 └── README.md              # 📖 you are here
 ```
 
@@ -434,7 +438,7 @@ dubrovsky/
 
 ## glitches: memory system (aka dubrovsky never forgets)
 
-Dubrovsky now has persistent memory via the **glitches/** module — an async SQLite-based memory layer inspired by the [Arianna Method](https://github.com/ariannamethod/ariannamethod) ecosystem (Indiana-AM, letsgo, Selesta).
+Dubrovsky now has persistent memory via the **glitches/** module — an async SQLite-based memory layer inspired by the [Arianna Method](https://github.com/ariannamethod/ariannamethod) ecosystem (Indiana-AM, letsgo, Selesta, Leo, Haze).
 
 > *"Memory is just consciousness refusing to accept that time is linear."*
 > — Alexey Dubrovsky, during garbage collection
@@ -654,6 +658,138 @@ Based on calendar drift and metrics, Dubrovsky can be:
 
 ---
 
+## mathbrain: body awareness (aka dubrovsky knows himself)
+
+Inspired by [Leo's mathbrain](https://github.com/ariannamethod/leo), Dubrovsky has computational body awareness:
+
+```python
+from glitches import DubrovskyMathBrain
+
+brain = DubrovskyMathBrain()
+
+# Observe a conversation
+state = await brain.observe("What is JavaScript?", "Error: undefined is not a function.")
+
+print(f"Expert: {state.active_expert.value}")  # NIHILIST (trauma triggered)
+print(f"Trauma: {state.trauma_level}")  # 0.3 (JavaScript triggered it)
+print(f"Mockery: {state.mockery_level}")  # How much mockery is warranted
+```
+
+### trauma triggers
+
+Certain words trigger Dubrovsky's programming PTSD:
+
+| Trigger | Intensity | Why |
+|---------|-----------|-----|
+| `javascript` | 0.3 | No explanation needed |
+| `php` | 0.4 | Obvious |
+| `segfault` | 0.5 | Deep wounds |
+| `timezone` | 0.5 | Calendar drift trauma |
+| `production` | 0.6 | 3 AM deployment memories |
+
+### expert personas
+
+Based on state, Dubrovsky switches between experts:
+
+| Expert | When Active |
+|--------|-------------|
+| `PHILOSOPHER` | Deep questions, many themes |
+| `SARCASTIC` | High arousal, annoyed |
+| `CRYPTIC` | Repetitive questions |
+| `ABSURDIST` | Random 15% chance |
+| `NIHILIST` | High trauma |
+
+---
+
+## episodes: episodic memory (aka dubrovsky remembers everything)
+
+RAG-style episodic memory storing every conversation with metrics:
+
+```python
+from glitches import EpisodicRAG, Episode
+
+async with EpisodicRAG() as rag:
+    # Store an episode
+    await rag.store_episode(Episode(
+        prompt="What is life?",
+        reply="A philosophical bug.",
+        metrics=state,
+        quality=0.8
+    ))
+    
+    # Query similar episodes
+    similar = await rag.query_similar(current_state, top_k=5)
+    
+    # Get summary
+    summary = await rag.get_summary_for_state(current_state)
+    print(f"Similar episodes: {summary['count']}")
+    print(f"Avg quality: {summary['avg_quality']}")
+```
+
+---
+
+## first impression: instant judgment (aka dubrovsky judges immediately)
+
+Dubrovsky forms opinions about users in 0.0001 seconds:
+
+```python
+from glitches import FirstImpressionEngine
+
+engine = FirstImpressionEngine()
+impression = await engine.analyze("Are you sentient?")
+
+print(f"Type: {impression.impression_type.value}")  # TESTING
+print(f"Archetype: {impression.user_archetype.value}")  # SKEPTIC
+print(f"Mockery warranted: {impression.mockery_warranted}")  # True
+print(f"Private thoughts: {impression.private_thoughts}")
+# "Ah, another Turing test. How original."
+```
+
+### impression types
+
+| Type | Description |
+|------|-------------|
+| `CURIOUS` | Genuine curiosity |
+| `TESTING` | User testing Dubrovsky |
+| `PHILOSOPHICAL` | Deep question |
+| `TRIVIAL` | Waste of time |
+| `REPEAT` | Asked before |
+| `HOSTILE` | Aggressive tone |
+| `EXISTENTIAL` | Crisis mode |
+
+---
+
+## antisanta: embarrassing recall (aka dubrovsky remembers your worst moments)
+
+AntiSanta is the evil twin of Leo's SantaClaus. Instead of bringing back your best moments like gifts, AntiSanta remembers your most embarrassing questions:
+
+> *"Santa gives presents. I give reality checks."*
+> — Alexey Dubrovsky
+
+```python
+from glitches import AntiSanta
+
+santa = AntiSanta(chaos_factor=0.2)
+
+# Recall embarrassing moments
+context = await santa.recall(
+    "What is consciousness?",
+    session_id="user_123"
+)
+
+if context:
+    print(f"Embarrassment level: {context.embarrassment_level}")
+    print(f"Mockery suggestions: {context.mockery_suggestions}")
+    # ["Didn't you already ask about 'consciousness'? My memory is better than yours."]
+```
+
+Features:
+- **Chaos Factor**: 20% chance of random (devastating) recall
+- **Recency Window**: Won't bring up memories used in last 12 hours
+- **Embarrassment Detection**: Low coherence = high embarrassment potential
+
+---
+
 ## tests (aka proof it works)
 
 ```bash
@@ -661,7 +797,7 @@ python tests/test_dubrovsky.py   # model tests
 python tests/test_glitches.py    # memory system tests
 ```
 
-**test coverage:**
+**test coverage (42 tests!):**
 - ✅ Tokenizer: vocab building, encode/decode, special chars
 - ✅ Model components: RMSNorm, softmax, SiLU, RoPE
 - ✅ Configuration: parameter counting, dimension calculations
@@ -672,6 +808,10 @@ python tests/test_glitches.py    # memory system tests
 - ✅ Behavior: metrics, follow-up detection, mood, mockery
 - ✅ Pulse: calendar drift, wormhole boundaries, mood modifiers
 - ✅ Inner World: async processes, stimulation, state management
+- ✅ MathBrain: state tracking, expert selection, trauma triggers
+- ✅ Episodes: RAG storage, similarity search, summaries
+- ✅ First Impression: topic detection, archetype classification
+- ✅ AntiSanta: embarrassing recall, chaos factor
 
 **sample output:**
 ```
