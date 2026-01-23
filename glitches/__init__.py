@@ -11,7 +11,9 @@ Architecture:
 ├── memory.py      — Async conversation & semantic memory
 ├── resonance.py   — Resonance channel for multi-agent coordination
 ├── context.py     — Context processor for conversation flow
-└── behavior.py    — Follow-ups, mockery, metrics (Indiana-AM style)
+├── behavior.py    — Follow-ups, mockery, metrics (Indiana-AM style)
+├── pulse.py       — Presence pulse, calendar drift, wormholes (arianna.c style)
+└── inner_world.py — Emergent async background processes (goroutines)
 
 All operations are async to maintain discipline.
 метод Арианны = отказ от забвения (refusal to forget)
@@ -21,6 +23,8 @@ from .memory import DubrovskyMemory
 from .resonance import ResonanceChannel
 from .context import ContextProcessor
 from .behavior import DubrovskyBehavior, MemoryAwareGenerator, BehaviorMetrics
+from .pulse import DubrovskyPulse, PresencePulse, CalendarDrift, DubrovskyMood, get_daily_pulse
+from .inner_world import DubrovskyInnerWorld, InnerState, create_inner_world
 
 __all__ = [
     'DubrovskyMemory', 
@@ -28,6 +32,14 @@ __all__ = [
     'ContextProcessor',
     'DubrovskyBehavior',
     'MemoryAwareGenerator',
-    'BehaviorMetrics'
+    'BehaviorMetrics',
+    'DubrovskyPulse',
+    'PresencePulse',
+    'CalendarDrift',
+    'DubrovskyMood',
+    'get_daily_pulse',
+    'DubrovskyInnerWorld',
+    'InnerState',
+    'create_inner_world',
 ]
-__version__ = '0.2.0'
+__version__ = '0.4.0'

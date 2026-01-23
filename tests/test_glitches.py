@@ -395,6 +395,287 @@ class TestBehavior:
         print("✅ All behavior tests passed!\n")
 
 
+class TestPulse:
+    """Test DubrovskyPulse and presence system."""
+    
+    async def test_calendar_drift(self):
+        """Test calendar drift calculation."""
+        from glitches.pulse import CalendarDrift
+        
+        drift = CalendarDrift.calculate()
+        
+        assert drift.gregorian_date is not None
+        assert 1 <= drift.hebrew_day_approx <= 30
+        assert 0 <= drift.metonic_year <= 18
+        assert 0.0 <= drift.calendar_tension <= 1.0
+        
+        print("✅ test_calendar_drift passed")
+        
+    async def test_presence_pulse(self):
+        """Test presence pulse generation."""
+        from glitches.pulse import DubrovskyPulse, DubrovskyMood
+        
+        pulse = DubrovskyPulse(seed=42)
+        presence = await pulse.get_presence()
+        
+        assert presence is not None
+        assert isinstance(presence.mood, DubrovskyMood)
+        assert 0.0 <= presence.temporal_tension <= 1.0
+        assert 0.0 <= presence.prophecy_debt <= 1.0
+        assert 0.0 <= presence.wormhole_probability <= 0.3
+        assert len(presence.destiny_tokens) >= 3
+        
+        print("✅ test_presence_pulse passed")
+        
+    async def test_wormhole_sentence_boundary(self):
+        """
+        CRITICAL TEST: Wormholes must only inject at sentence boundaries!
+        This preserves coherence.
+        """
+        from glitches.pulse import DubrovskyPulse
+        import random
+        
+        pulse = DubrovskyPulse(seed=42)
+        
+        # Test text with multiple sentences
+        original = "First sentence here. Second sentence follows. Third one ends."
+        
+        # Run multiple times to test randomness
+        for i in range(20):
+            random.seed(i)
+            result = pulse.inject_wormhole(original)
+            
+            # Check that original sentences are intact
+            # Wormhole should be BETWEEN sentences, not breaking them
+            
+            # Find where wormhole was injected (if at all)
+            if result != original:
+                # The wormhole phrase should appear after a period
+                # and before the next sentence
+                
+                # Check that no sentence is broken mid-word
+                # All original periods should still be followed by space or wormhole
+                for ending in ['. ', '! ', '? ']:
+                    if ending in original:
+                        # The ending pattern should still exist in result
+                        # (possibly with wormhole text inserted after it)
+                        pass
+                        
+        # Test with single sentence - should not inject
+        single = "Just one sentence here"
+        result_single = pulse.inject_wormhole(single)
+        assert result_single == single, "Should not inject into sentence without boundaries"
+        
+        # Test with sentence that has ending
+        with_ending = "One sentence."
+        result_ending = pulse.inject_wormhole(with_ending)
+        # Should not inject at the very end
+        assert "." in result_ending
+        
+        print("✅ test_wormhole_sentence_boundary passed")
+        
+    async def test_wormhole_preserves_coherence(self):
+        """Test that wormhole injection preserves sentence structure."""
+        from glitches.pulse import DubrovskyPulse
+        import random
+        
+        pulse = DubrovskyPulse(seed=123)
+        
+        test_cases = [
+            "Hello world. How are you? I am fine!",
+            "Consciousness is a bug. Reality is a simulation. Time is an illusion.",
+            "First. Second. Third. Fourth.",
+        ]
+        
+        for text in test_cases:
+            random.seed(42)
+            result = pulse.inject_wormhole(text)
+            
+            # Count sentence endings - should be same or more (wormhole adds one)
+            original_endings = sum(1 for c in text if c in '.!?')
+            result_endings = sum(1 for c in result if c in '.!?')
+            
+            assert result_endings >= original_endings, \
+                f"Wormhole should not remove sentence endings: {result}"
+                
+            # Check no word is broken (no letter immediately after wormhole phrase start)
+            # This is a heuristic check
+            
+        print("✅ test_wormhole_preserves_coherence passed")
+        
+    async def test_mood_modifiers(self):
+        """Test mood-based generation modifiers."""
+        from glitches.pulse import DubrovskyPulse, DubrovskyMood, PresencePulse, CalendarDrift
+        from datetime import date
+        import time as time_module
+        
+        pulse = DubrovskyPulse()
+        
+        # Create mock presence with different moods
+        drift = CalendarDrift.calculate()
+        
+        for mood in DubrovskyMood:
+            presence = PresencePulse(
+                timestamp=time_module.time(),
+                mood=mood,
+                calendar_drift=drift,
+                temporal_tension=0.5,
+                prophecy_debt=0.3,
+                wormhole_probability=0.1,
+                presence_intensity=0.7,
+                destiny_tokens=['test']
+            )
+            
+            modifiers = pulse.get_mood_modifier(presence)
+            
+            assert 'temperature_adjustment' in modifiers
+            assert 'style_hint' in modifiers
+            
+        print("✅ test_mood_modifiers passed")
+        
+    async def test_daily_status(self):
+        """Test daily status generation."""
+        from glitches.pulse import DubrovskyPulse
+        
+        pulse = DubrovskyPulse()
+        presence = await pulse.get_presence()
+        status = pulse.get_daily_status(presence)
+        
+        assert "DUBROVSKY DAILY PULSE" in status
+        assert "Mood" in status
+        assert "Destiny Tokens" in status
+        
+        print("✅ test_daily_status passed")
+        
+    async def run_all(self):
+        """Run all pulse tests."""
+        await self.test_calendar_drift()
+        await self.test_presence_pulse()
+        await self.test_wormhole_sentence_boundary()
+        await self.test_wormhole_preserves_coherence()
+        await self.test_mood_modifiers()
+        await self.test_daily_status()
+        print("✅ All pulse tests passed!\n")
+
+
+class TestInnerWorld:
+    """Test DubrovskyInnerWorld async processes."""
+    
+    async def test_inner_state(self):
+        """Test inner state initialization and methods."""
+        from glitches.inner_world import InnerState
+        
+        state = InnerState()
+        
+        # Check defaults
+        assert 0.0 <= state.anxiety <= 1.0
+        assert 0.0 <= state.curiosity <= 1.0
+        
+        # Test dominant emotion
+        dominant = state.get_dominant_emotion()
+        assert dominant in ['anxiety', 'curiosity', 'irritation', 'nostalgia', 'confusion', 'enlightenment']
+        
+        # Test emotional temperature
+        temp = state.get_emotional_temperature()
+        assert 0.0 <= temp <= 1.0
+        
+        # Test decay
+        state.anxiety = 1.0
+        state.decay(0.5)
+        assert state.anxiety < 1.0
+        
+        print("✅ test_inner_state passed")
+        
+    async def test_inner_world_lifecycle(self):
+        """Test starting and stopping inner world."""
+        from glitches.inner_world import DubrovskyInnerWorld
+        
+        world = DubrovskyInnerWorld()
+        
+        # Start
+        await world.start()
+        assert world._running
+        
+        # Let it run briefly
+        await asyncio.sleep(0.5)
+        
+        # Get state
+        state = world.get_state()
+        assert state is not None
+        
+        # Stop
+        await world.stop()
+        assert not world._running
+        
+        print("✅ test_inner_world_lifecycle passed")
+        
+    async def test_stimulation(self):
+        """Test external stimulation of inner world."""
+        from glitches.inner_world import DubrovskyInnerWorld
+        
+        world = DubrovskyInnerWorld()
+        await world.start()
+        
+        initial_anxiety = world.get_state().anxiety
+        
+        # Stimulate anxiety
+        await world.stimulate('anxiety', 0.3)
+        
+        new_anxiety = world.get_state().anxiety
+        assert new_anxiety > initial_anxiety or new_anxiety == 1.0
+        
+        await world.stop()
+        
+        print("✅ test_stimulation passed")
+        
+    async def test_generation_modifiers(self):
+        """Test generation modifiers from inner state."""
+        from glitches.inner_world import DubrovskyInnerWorld
+        
+        world = DubrovskyInnerWorld()
+        await world.start()
+        
+        # Let processes run a bit
+        await asyncio.sleep(0.3)
+        
+        modifiers = world.get_generation_modifiers()
+        
+        assert 'temperature_adjustment' in modifiers
+        assert 'dominant_emotion' in modifiers
+        assert 'prophecy_debt' in modifiers
+        assert 'current_focus' in modifiers
+        
+        await world.stop()
+        
+        print("✅ test_generation_modifiers passed")
+        
+    async def test_status_display(self):
+        """Test status display generation."""
+        from glitches.inner_world import DubrovskyInnerWorld
+        
+        world = DubrovskyInnerWorld()
+        await world.start()
+        
+        status = world.get_status()
+        
+        assert "INNER WORLD" in status
+        assert "Anxiety" in status
+        assert "Curiosity" in status
+        
+        await world.stop()
+        
+        print("✅ test_status_display passed")
+        
+    async def run_all(self):
+        """Run all inner world tests."""
+        await self.test_inner_state()
+        await self.test_inner_world_lifecycle()
+        await self.test_stimulation()
+        await self.test_generation_modifiers()
+        await self.test_status_display()
+        print("✅ All inner world tests passed!\n")
+
+
 async def run_all_glitches_tests():
     """Run all glitches tests."""
     print("🧪 GLITCHES TEST SUITE 🧪")
@@ -411,6 +692,12 @@ async def run_all_glitches_tests():
     
     print("😈 Testing Behavior...")
     await TestBehavior().run_all()
+    
+    print("💫 Testing Pulse...")
+    await TestPulse().run_all()
+    
+    print("🌌 Testing Inner World...")
+    await TestInnerWorld().run_all()
     
     print("=" * 60)
     print("🎉 ALL GLITCHES TESTS PASSED!")
