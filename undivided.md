@@ -6,8 +6,7 @@ What We Built
 Dubrovsky — 9.5M parameter llama 3 architecture trained on pure absurdist philosophy. Personality weights, not knowledge weights. Character-level tokenization. Runs in pure C, pure Python (NumPy only), and JavaScript. Trained 10,000 iterations on Lambda H100 instead of 5,000 — got more chaotic, not less. This is a feature.
 Arianna.c — embodied cognition experiment. Inner world, self-sense modules, quantum accumulation. Two weight types:
 
-Personality weights (853K params) — Arianna's voice, style, cadence
-External Brain weights (30M params, attempted) — failed because wiki corpus is semantic noise, not unified voice
+
 
 The distinction matters: style converges under pressure, facts diverge.
 Why This Document Exists
