@@ -48,6 +48,11 @@ typedef struct {
     int n_kv_groups;  // n_heads / n_kv_heads (3)
 } Config;
 
+// Chars reserved out of max_seq_len for the prompt so generation always has
+// room to run — without this, a prompt near max_seq_len leaves near-zero
+// budget for a response.
+#define PROMPT_RESERVED_BUDGET 32
+
 /* ============================================================================
  * Transformer Weights
  * ============================================================================ */
@@ -741,7 +746,19 @@ int main(int argc, char** argv) {
             
             int pos = 0;
             int prompt_len = strlen(full_prompt);
-            
+
+            // Clamp: pos walks the KV cache (size max_seq_len) with no bound
+            // check below, and full_prompt[2048] is far larger than a safe
+            // prompt length. Without this, a long prompt overruns key_cache/
+            // value_cache during this very loop (heap buffer overflow).
+            int max_prompt_len = config.max_seq_len - PROMPT_RESERVED_BUDGET;
+            if (max_prompt_len < 0) max_prompt_len = 0;
+            if (prompt_len > max_prompt_len) {
+                fprintf(stderr, "⚠️  prompt too long (%d chars), truncating to %d to leave room for generation\n",
+                        prompt_len, max_prompt_len);
+                prompt_len = max_prompt_len;
+            }
+
             // Process prompt
             for (int i = 0; i < prompt_len; i++) {
                 int token = encode_char(&tokenizer, full_prompt[i]);
@@ -808,12 +825,25 @@ int main(int argc, char** argv) {
         }
         
         prompt_len = strlen(full_prompt);
-        
+
+        // Clamp: pos walks the KV cache (size max_seq_len) with no bound
+        // check below, and full_prompt[2048] is far larger than a safe
+        // prompt length. Without this, a long prompt overruns key_cache/
+        // value_cache during this very loop (heap buffer overflow).
+        int max_prompt_len = config.max_seq_len - PROMPT_RESERVED_BUDGET;
+        if (max_prompt_len < 0) max_prompt_len = 0;
+        if (prompt_len > max_prompt_len) {
+            fprintf(stderr, "⚠️  prompt too long (%d chars), truncating to %d to leave room for generation\n",
+                    prompt_len, max_prompt_len);
+            prompt_len = max_prompt_len;
+            full_prompt[prompt_len] = '\0';
+        }
+
         printf("📝 Prompt: %s\n", full_prompt);
         printf("%s", "============================================================\n");
-        
+
         int pos = 0;
-        
+
         // Process prompt
         printf("%s", full_prompt);
         for (int i = 0; i < prompt_len; i++) {
