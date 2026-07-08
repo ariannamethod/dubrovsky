@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <ctype.h>
 
 /* ============================================================================
  * Configuration
@@ -52,6 +53,20 @@ typedef struct {
 // room to run — without this, a prompt near max_seq_len leaves near-zero
 // budget for a response.
 #define PROMPT_RESERVED_BUDGET 32
+
+// RAE (Recursive Adapter Engine) tunables — fixed linear scoring weights,
+// no training loop yet (no quality-feedback signal exists to train
+// against). v1.0/rule-based, matching harmonix/haiku's own rae.py fallback
+// path rather than its learned rae_recursive.py selector.
+#define WORD_MAXLEN 32
+#define MAX_WORD_SPANS 128
+#define RAE_W_RESONANCE 0.45f
+#define RAE_W_CLEANLINESS 0.35f
+#define RAE_W_PERPLEXITY_PENALTY 0.20f
+#define RAE_DEFAULT_N_SINGLE_SHOT 4
+#define RAE_DEFAULT_N_INTERACTIVE 1  // RAE effectively off by default in the
+                                      // REPL — N candidates cost ~N x latency
+#define RAE_MAX_CANDIDATES 16
 
 /* ============================================================================
  * Transformer Weights
@@ -677,6 +692,8 @@ typedef struct {
     float sum_neg_log_prob;  // unused until the temperature-sweep step wires it up
 } GenResult;
 
+typedef struct { float perplexity, resonance, cleanliness; } CandidateFeatures;
+
 // Shared regulated-completion generation loop, extracted verbatim from the
 // previously-duplicated interactive/single-shot loops (behavior unchanged):
 // max_tokens is a floor, not a hard ceiling — once past it, generation
@@ -733,23 +750,105 @@ void generate_regulated(Config* c, Weights* w, RunState* s, Tokenizer* t,
     }
 }
 
+// Splits text into lowercased alnum words (case-insensitive matching),
+// capped at max_words entries / WORD_MAXLEN-1 chars each — same
+// truncate-don't-overflow idiom as load_tokenizer's char_to_id parsing.
+int extract_words(const char* text, int len, char words[][WORD_MAXLEN], int max_words) {
+    int n = 0;
+    int i = 0;
+    while (i < len && n < max_words) {
+        while (i < len && !isalnum((unsigned char)text[i])) i++;
+        if (i >= len) break;
+        int wlen = 0;
+        while (i < len && isalnum((unsigned char)text[i])) {
+            if (wlen < WORD_MAXLEN - 1) {
+                words[n][wlen] = (char)tolower((unsigned char)text[i]);
+                wlen++;
+            }
+            i++;
+        }
+        words[n][wlen] = '\0';
+        n++;
+    }
+    return n;
+}
+
+// resonance = fraction of the prompt's words that also appear in the
+// candidate — same overlap/n_words convention as dario.c's dissonance
+// term and harmonix/haiku's rae_recursive.py feature extraction. Not
+// strict set semantics (a repeated prompt word counts once per
+// occurrence) — fine for short prompts, not worth the extra bookkeeping.
+float word_overlap_ratio(char cand[][WORD_MAXLEN], int n_cand,
+                          char prompt[][WORD_MAXLEN], int n_prompt) {
+    if (n_prompt == 0) return 0.0f;
+    int overlap = 0;
+    for (int i = 0; i < n_prompt; i++) {
+        for (int j = 0; j < n_cand; j++) {
+            if (strcmp(prompt[i], cand[j]) == 0) {
+                overlap++;
+                break;
+            }
+        }
+    }
+    return (float)overlap / (float)n_prompt;
+}
+
+void score_candidate_features(GenResult* gen, char prompt_words[][WORD_MAXLEN],
+                               int n_prompt_words, CandidateFeatures* out) {
+    char cand_words[MAX_WORD_SPANS][WORD_MAXLEN];
+    int n_cand_words = extract_words(gen->text, gen->len, cand_words, MAX_WORD_SPANS);
+
+    out->resonance = word_overlap_ratio(cand_words, n_cand_words, prompt_words, n_prompt_words);
+    out->cleanliness = (gen->exit_reason == GEN_EXIT_SENTENCE) ? 1.0f : 0.0f;
+    out->perplexity = (gen->tokens_generated > 0)
+        ? (gen->sum_neg_log_prob / gen->tokens_generated)
+        : 0.0f;
+}
+
+float combine_score(const CandidateFeatures* f) {
+    return RAE_W_RESONANCE * f->resonance
+         + RAE_W_CLEANLINESS * f->cleanliness
+         - RAE_W_PERPLEXITY_PENALTY * f->perplexity;
+}
+
 // Runs n_candidates independent generations from the same post-prompt
 // snapshot (each candidate restores fresh, so they don't see each other's
-// output), returns the index of the best one. At N=1 this is just
-// snapshot-restore-then-generate with a trivial winner — real scoring
-// (perplexity/resonance/cleanliness) lands in the next build step.
+// output), scores each on resonance/cleanliness/perplexity, returns the
+// index of the highest scorer. perplexity is still always 0 here (and so
+// non-discriminating) until the temperature-sweep step wires up
+// sum_neg_log_prob in generate_regulated — resonance+cleanliness alone
+// already differentiate candidates meaningfully.
 int rae_select(Config* c, Weights* w, RunState* s, Tokenizer* t,
                 KVSnapshot* snap, int n_candidates, const float* temperatures,
                 float top_p, int max_tokens, int stop_on_newline,
-                GenResult* candidates_out) {
+                char prompt_words[][WORD_MAXLEN], int n_prompt_words,
+                int debug, GenResult* candidates_out) {
     if (n_candidates < 1) n_candidates = 1;
+    float best_score = 0.0f;
+    int best_idx = 0;
     for (int i = 0; i < n_candidates; i++) {
         int pos;
         kv_snapshot_restore(s, snap, c, &pos);
         generate_regulated(c, w, s, t, &pos, temperatures[i], top_p,
                             max_tokens, stop_on_newline, &candidates_out[i]);
+
+        CandidateFeatures feat;
+        score_candidate_features(&candidates_out[i], prompt_words, n_prompt_words, &feat);
+        float score = combine_score(&feat);
+
+        if (debug) {
+            fprintf(stderr, "[rae-debug] candidate %d (temp=%.2f) score=%.3f "
+                    "resonance=%.3f cleanliness=%.3f perplexity=%.3f\n  text: %s\n",
+                    i, temperatures[i], score, feat.resonance, feat.cleanliness,
+                    feat.perplexity, candidates_out[i].text);
+        }
+
+        if (i == 0 || score > best_score) {
+            best_score = score;
+            best_idx = i;
+        }
     }
-    return 0;  // trivial winner until scoring lands
+    return best_idx;
 }
 
 /* ============================================================================
@@ -768,6 +867,10 @@ void print_usage(char* prog) {
     printf("  -i                Interactive mode\n");
     printf("  --no_stop         Disable stop on newline\n");
     printf("  --tokenizer <path> Path to tokenizer.json\n");
+    printf("  -N, --best-of <n> RAE candidates to generate + select from\n");
+    printf("                    (default: %d single-shot, %d interactive)\n",
+           RAE_DEFAULT_N_SINGLE_SHOT, RAE_DEFAULT_N_INTERACTIVE);
+    printf("  --rae-debug       Dump each RAE candidate's score/features to stderr\n");
     printf("\nExample:\n");
     printf("  %s subtitles/dubrovsky.bin -p \"Q: What is life?\"\n", prog);
 }
@@ -801,7 +904,9 @@ int main(int argc, char** argv) {
     int interactive = 0;
     int stop_on_newline = 1;  // Stop on newline by default
     unsigned int seed = (unsigned int)time(NULL);
-    
+    int n_candidates_override = -1;  // -1 = use per-mode default
+    int rae_debug = 0;
+
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
             prompt = argv[++i];
@@ -819,7 +924,16 @@ int main(int argc, char** argv) {
             stop_on_newline = 0;
         } else if (strcmp(argv[i], "--tokenizer") == 0 && i + 1 < argc) {
             tokenizer_path = argv[++i];
+        } else if ((strcmp(argv[i], "-N") == 0 || strcmp(argv[i], "--best-of") == 0) && i + 1 < argc) {
+            n_candidates_override = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--rae-debug") == 0) {
+            rae_debug = 1;
         }
+    }
+
+    if (n_candidates_override > RAE_MAX_CANDIDATES) {
+        fprintf(stderr, "⚠️  -N %d exceeds max %d, clamping\n", n_candidates_override, RAE_MAX_CANDIDATES);
+        n_candidates_override = RAE_MAX_CANDIDATES;
     }
     
     srand(seed);
@@ -914,13 +1028,26 @@ int main(int argc, char** argv) {
                 forward(&config, &weights, &state, token, pos++);
             }
             
-            // Snapshot the post-prompt state, then run it through the real
-            // RAE control flow (N=1 for now — scoring/N>1 land next).
+            // Words for resonance scoring come from the raw user line
+            // (`input`), not `full_prompt` — the latter contains the
+            // "Q: ... A: Dubrovsky " template, which would bias resonance
+            // toward candidates that just repeat "Dubrovsky"/"Q:"/"A:".
+            char prompt_words[MAX_WORD_SPANS][WORD_MAXLEN];
+            int n_prompt_words = extract_words(input, (int)strlen(input), prompt_words, MAX_WORD_SPANS);
+
+            int n_cand = (n_candidates_override > 0) ? n_candidates_override : RAE_DEFAULT_N_INTERACTIVE;
+            if (n_cand > RAE_MAX_CANDIDATES) n_cand = RAE_MAX_CANDIDATES;
+
+            // Snapshot the post-prompt state, then run it through RAE:
+            // n_cand candidates at the same temperature for now (diversity
+            // from RNG only) — the temperature sweep lands next.
             kv_snapshot_save(&snap, &state, &config, pos);
-            GenResult candidates[1];
-            float temps[1] = { temperature };
+            GenResult candidates[RAE_MAX_CANDIDATES];
+            float temps[RAE_MAX_CANDIDATES];
+            for (int ci = 0; ci < n_cand; ci++) temps[ci] = temperature;
             int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
-                                     1, temps, top_p, max_tokens, stop_on_newline,
+                                     n_cand, temps, top_p, max_tokens, stop_on_newline,
+                                     prompt_words, n_prompt_words, rae_debug,
                                      candidates);
 
             printf("%s", candidates[winner].text);
@@ -969,14 +1096,26 @@ int main(int argc, char** argv) {
             forward(&config, &weights, &state, token, pos++);
         }
         
-        // Snapshot the post-prompt state, then run it through the real RAE
-        // control flow (N=1 for now — scoring/N>1 land next).
+        // Words for resonance scoring come from the raw CLI `prompt`, not
+        // `full_prompt` — the latter may carry an appended "\nA: " suffix
+        // that isn't part of what the user actually said.
+        char prompt_words[MAX_WORD_SPANS][WORD_MAXLEN];
+        int n_prompt_words = extract_words(prompt, (int)strlen(prompt), prompt_words, MAX_WORD_SPANS);
+
+        int n_cand = (n_candidates_override > 0) ? n_candidates_override : RAE_DEFAULT_N_SINGLE_SHOT;
+        if (n_cand > RAE_MAX_CANDIDATES) n_cand = RAE_MAX_CANDIDATES;
+
+        // Snapshot the post-prompt state, then run it through RAE: n_cand
+        // candidates at the same temperature for now (diversity from RNG
+        // only) — the temperature sweep lands next.
         kv_snapshot_save(&snap, &state, &config, pos);
-        GenResult candidates[1];
-        float temps[1] = { temperature };
+        GenResult candidates[RAE_MAX_CANDIDATES];
+        float temps[RAE_MAX_CANDIDATES];
+        for (int ci = 0; ci < n_cand; ci++) temps[ci] = temperature;
         clock_t start = clock();
         int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
-                                 1, temps, top_p, max_tokens, stop_on_newline,
+                                 n_cand, temps, top_p, max_tokens, stop_on_newline,
+                                 prompt_words, n_prompt_words, rae_debug,
                                  candidates);
 
         // Print the trimmed output
