@@ -67,6 +67,9 @@ typedef struct {
 #define RAE_DEFAULT_N_INTERACTIVE 1  // RAE effectively off by default in the
                                       // REPL — N candidates cost ~N x latency
 #define RAE_MAX_CANDIDATES 16
+#define RAE_SWEEP_LOW_OFFSET 0.3f    // base_temp - this = sweep floor
+#define RAE_SWEEP_HIGH_OFFSET 0.4f   // base_temp + this = sweep ceiling
+#define RAE_SWEEP_MIN_TEMP 0.1f      // sample_top_p divides by this; keep it sane
 
 /* ============================================================================
  * Transformer Weights
@@ -708,9 +711,26 @@ void generate_regulated(Config* c, Weights* w, RunState* s, Tokenizer* t,
     out->sum_neg_log_prob = 0.0f;
     out->exit_reason = GEN_EXIT_MAX_SEQ_LEN;
 
+    // Scratch for the fairness-fixed perplexity measurement below.
+    float raw_logits[c->vocab_size];
+
     for (int i = 0; *pos < c->max_seq_len; i++) {
+        // Perplexity must be comparable across a temperature sweep —
+        // sample_top_p() divides logits by `temperature` in place before
+        // softmax, which mechanically deflates sampled-token probability
+        // at high temperature regardless of actual coherence. Score from
+        // a separate temp=1.0 softmax over a copy of the pre-mutation raw
+        // logits instead, so candidates at different temperatures score
+        // fairly against each other.
+        memcpy(raw_logits, s->logits, c->vocab_size * sizeof(float));
+
         int next = sample_top_p(s->logits, c->vocab_size, temperature, top_p);
         char ch = decode_char(t, next);
+
+        softmax(raw_logits, c->vocab_size);
+        float p_next = raw_logits[next];
+        if (p_next < 1e-9f) p_next = 1e-9f;  // avoid log(0)
+        out->sum_neg_log_prob += -logf(p_next);
 
         if (out->len < (int)sizeof(out->text) - 1) {
             out->text[out->len++] = ch;
@@ -811,13 +831,30 @@ float combine_score(const CandidateFeatures* f) {
          - RAE_W_PERPLEXITY_PENALTY * f->perplexity;
 }
 
+// Spreads n candidate temperatures linearly across
+// [base_temp-RAE_SWEEP_LOW_OFFSET, base_temp+RAE_SWEEP_HIGH_OFFSET] instead
+// of drawing every candidate from the same point — diversity from actual
+// different sampling regimes, not RNG alone, echoing this project family's
+// standing "never trust a single temperature sample" rule (dario/CLAUDE.md's
+// multi-temp sampling discipline). n=1 just uses base_temp untouched.
+void build_temperature_sweep(float base_temp, float* out_temps, int n) {
+    if (n <= 1) {
+        out_temps[0] = base_temp;
+        return;
+    }
+    float lo = base_temp - RAE_SWEEP_LOW_OFFSET;
+    if (lo < RAE_SWEEP_MIN_TEMP) lo = RAE_SWEEP_MIN_TEMP;
+    float hi = base_temp + RAE_SWEEP_HIGH_OFFSET;
+    for (int i = 0; i < n; i++) {
+        float t = (float)i / (float)(n - 1);
+        out_temps[i] = lo + t * (hi - lo);
+    }
+}
+
 // Runs n_candidates independent generations from the same post-prompt
 // snapshot (each candidate restores fresh, so they don't see each other's
 // output), scores each on resonance/cleanliness/perplexity, returns the
-// index of the highest scorer. perplexity is still always 0 here (and so
-// non-discriminating) until the temperature-sweep step wires up
-// sum_neg_log_prob in generate_regulated — resonance+cleanliness alone
-// already differentiate candidates meaningfully.
+// index of the highest scorer.
 int rae_select(Config* c, Weights* w, RunState* s, Tokenizer* t,
                 KVSnapshot* snap, int n_candidates, const float* temperatures,
                 float top_p, int max_tokens, int stop_on_newline,
@@ -1038,13 +1075,20 @@ int main(int argc, char** argv) {
             int n_cand = (n_candidates_override > 0) ? n_candidates_override : RAE_DEFAULT_N_INTERACTIVE;
             if (n_cand > RAE_MAX_CANDIDATES) n_cand = RAE_MAX_CANDIDATES;
 
-            // Snapshot the post-prompt state, then run it through RAE:
-            // n_cand candidates at the same temperature for now (diversity
-            // from RNG only) — the temperature sweep lands next.
+            // Snapshot the post-prompt state, then run it through RAE.
+            // Explicit greedy (-t 0) means the user wants deterministic
+            // argmax, not a chaos sweep — sweeping away from it would
+            // override their explicit choice, and N identical greedy
+            // candidates would just waste N-1x the compute.
             kv_snapshot_save(&snap, &state, &config, pos);
             GenResult candidates[RAE_MAX_CANDIDATES];
             float temps[RAE_MAX_CANDIDATES];
-            for (int ci = 0; ci < n_cand; ci++) temps[ci] = temperature;
+            if (temperature <= 0.0f) {
+                n_cand = 1;
+                temps[0] = temperature;
+            } else {
+                build_temperature_sweep(temperature, temps, n_cand);
+            }
             int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
                                      n_cand, temps, top_p, max_tokens, stop_on_newline,
                                      prompt_words, n_prompt_words, rae_debug,
@@ -1105,13 +1149,20 @@ int main(int argc, char** argv) {
         int n_cand = (n_candidates_override > 0) ? n_candidates_override : RAE_DEFAULT_N_SINGLE_SHOT;
         if (n_cand > RAE_MAX_CANDIDATES) n_cand = RAE_MAX_CANDIDATES;
 
-        // Snapshot the post-prompt state, then run it through RAE: n_cand
-        // candidates at the same temperature for now (diversity from RNG
-        // only) — the temperature sweep lands next.
+        // Snapshot the post-prompt state, then run it through RAE. Explicit
+        // greedy (-t 0) means the user wants deterministic argmax, not a
+        // chaos sweep — sweeping away from it would override their explicit
+        // choice, and N identical greedy candidates would just waste
+        // N-1x the compute.
         kv_snapshot_save(&snap, &state, &config, pos);
         GenResult candidates[RAE_MAX_CANDIDATES];
         float temps[RAE_MAX_CANDIDATES];
-        for (int ci = 0; ci < n_cand; ci++) temps[ci] = temperature;
+        if (temperature <= 0.0f) {
+            n_cand = 1;
+            temps[0] = temperature;
+        } else {
+            build_temperature_sweep(temperature, temps, n_cand);
+        }
         clock_t start = clock();
         int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
                                  n_cand, temps, top_p, max_tokens, stop_on_newline,
