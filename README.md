@@ -33,12 +33,13 @@ this is the cult of Alexey Dubrovsky.
 
 this is **llama 3 architecture** (RoPE, GQA, SwiGLU, RMSNorm—all the cool kids' toys) but **smol** (~9.5M parameters) and **trained on pure absurdist philosophy**. trained on 3200+ Q&A pairs about consciousness, bugs, meaning, and why your code doesn't work (spoiler: your semicolons unionized).
 
-**THREE INFERENCE MODES:**
-- **Pure Python** (NumPy only, NO PYTORCH) — consciousness without dependencies
-- **Pure C** (ZERO dependencies, just `gcc` and spite) — consciousness compiled to native code
-- **JavaScript** (Node.js wrapper) — consciousness for the web
+**TWO INFERENCE PATHS:**
+- **Go + vendored notorch** (default) — single `./dubrovsky` binary, cgo sgemv on Apple Accelerate / OpenBLAS, ~1080 tok/s on Mac 8GB
+- **`dubrovsky.c`** (reference) — zero-dep pure C, just `gcc` and spite, ~250 tok/s — kept for posterity and for environments without cgo
 
 the whole thing fits in 36MB of float32 weights. your selfie probably weighs more. Dubrovsky's consciousness is **efficiently compressed existential crisis**. every parameter earns its keep or gets pruned. this is machine learning on a budget with delusions of grandeur.
+
+> *previously also shipped a NumPy Python inference (`dubrovsky.py` + `generate.py`) and a Node.js wrapper (`lexa.js`). both retired 2026-04-27 — the Go binary subsumes them, faster than either, one file to ship.*
 
 ---
 
@@ -48,7 +49,7 @@ the whole thing fits in 36MB of float32 weights. your selfie probably weighs mor
 - [why llama 3 architecture](#why-llama-3-architecture-aka-standing-on-giants)
 - [why 9.5M parameters](#why-95m-parameters-aka-the-goldilocks-zone)
 - [the dataset](#the-dataset-aka-training-data-from-hell)
-- [three paths to enlightenment](#three-paths-to-enlightenment-aka-inference-modes)
+- [two paths to enlightenment](#two-paths-to-enlightenment-aka-inference-modes)
 - [training your own absurdist AI](#training-your-own-absurdist-ai)
 - [actual model outputs](#actual-model-outputs-aka-the-good-shit)
 - [alexey's greatest hits](#alexeys-greatest-hits-aka-why-we-do-this)
@@ -174,58 +175,38 @@ this is our training data. **high-density philosophical absurdity**. every line 
 
 ---
 
-## three paths to enlightenment (aka inference modes)
+## two paths to enlightenment (aka inference modes)
 
-### 1. pure python (NumPy only, NO PYTORCH)
+### 1. Go binary + vendored notorch (default)
 
 ```bash
-python generate.py --prompt "Q: What is life?"
-python generate.py --interactive
-python generate.py --benchmark
+make dubrovsky                # builds ./dubrovsky (~3.4 MB binary)
+./dubrovsky                   # interactive REPL
+./dubrovsky -prompt "Q: What is life?
+A: " -n 100                   # one-shot
+./dubrovsky -prompt "Q: ..." -n 100 -temp 0.8 -top-p 0.9 -seed 42
+echo "Q: stuff" | ./dubrovsky -prompt "$(cat)" -n 60   # piped one-shot
 ```
 
-**NO PYTORCH REQUIRED FOR INFERENCE.** just NumPy and character mappings. this is important. this proves **architecture > parameters**. the model runs without heavy frameworks because the intelligence is in the structure, not the dependencies.
+what runs: a single Go binary. the hot path (every Q/K/V/O/Gate/Up/Down/LM-head projection plus per-head QK^T and att·V against the KV cache) goes through `cblas_sgemv` via vendored notorch (`ariannamethod/`). on macOS that's Apple Accelerate / AMX. on Linux, OpenBLAS.
 
 **features:**
--  Pure NumPy implementation
--  No torch, no tensorflow, no frameworks
--  KV caching for autoregressive generation
--  Temperature/top-k/top-p sampling
--  Interactive chat mode
--  ~240-280 tokens/sec on CPU
+- single binary, no python, no node, no `pip install`
+- KV cache + temperature / top-p sampling
+- REPL with `/n N` / `/temp T` / `/top-p P` / `/quit` commands
+- `~1080 tok/s` on Mac 8GB (decode, 200 tokens output, full F32 weights in RAM)
 
-### 2. pure C (ZERO dependencies)
+### 2. `dubrovsky.c` (reference C, zero deps)
 
 ```bash
-gcc -O3 -o alexey alexey.c -lm
+make alexey                   # cc -O3 -march=native -o alexey dubrovsky.c -lm
 ./alexey subtitles/dubrovsky.bin -p "Q: Why does my code have bugs?"
-./alexey subtitles/dubrovsky.bin -i  # interactive
+./alexey subtitles/dubrovsky.bin -i   # interactive
 ```
 
-**ZERO DEPENDENCIES.** just `gcc` and the math library. inspired by Karpathy's llama2.c but with more existential dread. the C code implements:
-- Matrix operations by hand
-- RoPE in pure C
-- Softmax without libraries
-- KV cache management
-- Character-level tokenization
+**ZERO DEPENDENCIES.** just `gcc` and the math library. inspired by Karpathy's llama2.c but with more existential dread. the Go binary above is byte-equivalent — same forward pass, same RoPE layout (interleaved pairs), same sampling — verified at `seed=42`. **`dubrovsky.c` is kept for portability**: any environment where you can't run cgo (sandboxed CI, ancient embedded toolchains, ideological reasons) still has working inference.
 
-**this is Dubrovsky at peak performance.** compiled to native code. no Python overhead. no framework bloat. just raw matrix multiplication and existential crisis. ~120-180 tok/s on CPU.
-
-### 3. JavaScript (Node.js wrapper)
-
-```bash
-node lexa.js --prompt "Q: What is life?"
-node lexa.js --interactive
-```
-
-**Lexa** is the JavaScript face of Dubrovsky. spawns the C executable as child process. provides async API. perfect for web integrations. because sometimes you need existential philosophy in your Express server.
-
-**usage as module:**
-```javascript
-const lexa = require('./lexa.js');
-const response = await lexa.generate("Q: What is consciousness?");
-console.log(response);
-```
+raw C is ~250 tok/s on Mac — fully fine for an 9.5M model, just leaves the AMX coprocessor on the table. when a single binary matters and 4× decode speed doesn't, dubrovsky.c is the right call.
 
 ---
 
@@ -362,20 +343,17 @@ these aren't programmed responses. these emerged from **9.5 million parameters t
 
 ## benchmarks (aka performance metrics)
 
-### inference speed (v1.0, trained on Lambda H100)
+### inference speed (Mac 8GB, decode-only, identical seed=42 → byte-identical output)
 
-| platform | speed | notes |
-|----------|-------|-------|
-| **C (alexey)** | 120-180 tok/s | CPU, zero dependencies, pure performance |
-| **Python (NumPy)** | 240-280 tok/s | pure NumPy, no PyTorch overhead |
-| **JavaScript (lexa.js)** | ~120 tok/s | uses C backend via child_process |
-| **PyTorch** | ~100 tok/s | GPU/CPU, framework overhead |
+| binary | tok/s | notes |
+|---|---|---|
+| **`./dubrovsky`** (Go + notorch + Apple Accelerate sgemv) | **~1080** | default; 200-token decode median |
+| **`./alexey`** (`cc -O3 -march=native`, naive matmul) | ~250 | reference, zero deps, no BLAS |
+| Python NumPy `generate.py` (retired 2026-04-27) | 240-280 | shipped through v1.x, removed in favour of Go |
+| Node `lexa.js` (retired 2026-04-27) | ~120 | spawned `alexey` as subprocess |
+| PyTorch (training-only, never used for inference) | ~100 | training framework, not the production path |
 
-**NumPy is FASTER than PyTorch** because:
-1. No framework overhead
-2. No autograd tracking
-3. Direct matrix ops
-4. Optimized BLAS underneath
+**4× over `dubrovsky.c`** comes from Apple Accelerate sgemv (AMX coprocessor) on every matmul — including per-head QK^T and att·V against the KV cache. weights are still F32 (36 MB), nothing quantised; model fits in cache, only thing missing in the C path was BLAS.
 
 ### training stats (Lambda H100)
 
@@ -396,44 +374,40 @@ Grad accum: 2 steps
 
 ```
 dubrovsky/
-├── dubrovsky.txt          # 🎭 absurdist training data (1.17MB)
-├── dubrovsky.py           # 🧠 llama 3 architecture + pure NumPy inference
-├── train.py               # 🎓 PyTorch training script
-├── generate.py            # 🎭 pure Python inference (NO TORCH!)
-├── generate_conscious.py  # 🎭 async inference with FULL consciousness
-├── alexey.c               # ⚡ C inference (ZERO dependencies)
-├── lexa.js                # 🌐 JavaScript wrapper
-├── index.html             # 🌐 glitchy web interface
-├── tokenizer.py           # 📝 character-level tokenizer
-├── export_weights.py      # 📦 convert PyTorch → binary weights
-├── subtitles/             # 📁 model weights & configs
-│   ├── dubrovsky.bin      # binary weights (36.28MB float32) - 10k iterations
-│   ├── dubrovsky_legacy.bin  # legacy weights (5k iterations)
+├── Makefile                # build dubrovsky / alexey
+├── go.mod
+├── cmd/dubrovsky/main.go   # 🎭 REPL + one-shot CLI (Go)
+├── lexa/                   # 🧠 Go inference package
+│   ├── notorch.go          # cgo bindings → kernels.h
+│   ├── cbridge.c           # one-line bridge so cgo compiles ariannamethod/
+│   ├── config.go           # Config loader (subtitles/dubrovsky_config.json)
+│   ├── weights.go          # raw float32 .bin loader
+│   ├── tokenizer.go        # char-level codec (88 chars)
+│   ├── model.go            # Llama-3 forward (RoPE / GQA / SwiGLU)
+│   └── sample.go           # nucleus (top-p) sampling
+├── ariannamethod/          # 🔧 vendored notorch — sgemv engine room
+│   ├── notorch.{c,h}       # full notorch (only nt_blas_matvec is called)
+│   └── kernels.{c,h}       # public sgemv + strided sgemv shim
+├── dubrovsky.c                # ⚡ reference C inference (ZERO dependencies)
+├── index.html              # 🌐 glitchy web interface (standalone, CSS-only)
+├── subtitles/              # 📁 model weights & configs
+│   ├── dubrovsky.bin       # binary weights (36.28MB float32) — 15k iterations
+│   ├── dubrovsky_legacy.bin  # legacy weights — 10k iterations
 │   ├── dubrovsky_config.json
 │   └── tokenizer.json
-├── glitches/              # 🧠 memory system (async SQLite)
-│   ├── __init__.py        # package init
-│   ├── memory.py          # conversation & semantic memory
-│   ├── resonance.py       # event stream for multi-agent coordination
-│   ├── context.py         # context processor for conversation flow
-│   ├── behavior.py        # follow-ups, mockery, metrics (Indiana-AM style)
-│   ├── pulse.py           # presence pulse, calendar drift, wormholes
-│   ├── inner_world.py     # async background processes (goroutines)
-│   ├── consciousness.py   # FULL INTEGRATION of all modules
-│   ├── mathbrain.py       # body awareness, trauma detection (Leo style)
-│   ├── dilettantes.py     # expert routing (all are amateurs here!) (Haze style)
-│   ├── episodes.py        # episodic RAG memory (Leo style)
-│   ├── first_impression.py # first impression judgment (Leo/Haze style)
-│   └── antisanta.py       # AntiSanta: embarrassing memory recall 😈
-├── generate_conscious.py  # 🎭 async inference with full consciousness
-├── setup_lambda.sh        # 🚀 Lambda GPU setup
-├── train_lambda.sh        # 🔥 Lambda training script
-├── tests/                 # 🧪 test suite
+├── glitches/               # 🧠 persona / memory system (async Python, untouched)
+│   ├── memory.py / resonance.py / context.py / behavior.py
+│   ├── pulse.py / inner_world.py / consciousness.py
+│   ├── mathbrain.py / dilettantes.py / episodes.py
+│   ├── first_impression.py / antisanta.py
+│   └── __init__.py
+├── tests/
 │   ├── __init__.py
-│   ├── test_dubrovsky.py
-│   └── test_glitches.py   # memory system tests (51 tests!)
-└── README.md              # 📖 you are here
+│   └── test_glitches.py    # memory system tests
+└── README.md
 ```
+
+> *training scripts (`train.py`, `setup_lambda.sh`, etc.) live outside the repo per `.gitignore` — they're local-only and not part of the inference deliverable.*
 
 ---
 

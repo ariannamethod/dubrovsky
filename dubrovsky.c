@@ -1,5 +1,5 @@
 /*
- * 🎭 ALEXEY.C - Dubrovsky Inference in Pure C 🎭
+ * 🎭 DUBROVSKY.C - Dubrovsky Inference in Pure C 🎭
  *
  * Zero-dependency C implementation of Dubrovsky transformer.
  * Inspired by llama2.c from Andrej Karpathy.
@@ -9,7 +9,7 @@
  *  - Alexey Dubrovsky, in machine code
  *
  * Compile:
- *   gcc -O3 -o alexey alexey.c -lm
+ *   gcc -O3 -o alexey dubrovsky.c -lm
  *   (Optional: -fopenmp for parallel, -march=native for SIMD)
  *
  * Usage:
@@ -430,6 +430,13 @@ int sample_multinomial(float* probs, int n) {
 }
 
 int sample_top_p(float* logits, int n, float temperature, float top_p) {
+    // temperature <= 0 means greedy decoding — dividing by it would be a
+    // divide-by-zero (inf/nan through softmax). argmax on raw logits is
+    // equivalent to argmax on softmax(logits) since softmax is monotonic.
+    if (temperature <= 0.0f) {
+        return sample_argmax(logits, n);
+    }
+
     // Apply temperature
     for (int i = 0; i < n; i++) {
         logits[i] /= temperature;
@@ -604,8 +611,7 @@ void print_usage(char* prog) {
     printf("Options:\n");
     printf("  -p <prompt>       Prompt text\n");
     printf("  -n <tokens>       Max new tokens (default: 100)\n");
-    printf("  -t <temp>         Temperature (default: 0.8)\n");
-    printf("  -k <topk>         Top-k sampling (default: 40)\n");
+    printf("  -t <temp>         Temperature (default: 0.8, 0 = greedy)\n");
     printf("  -P <topp>         Top-p sampling (default: 0.9)\n");
     printf("  -s <seed>         Random seed\n");
     printf("  -i                Interactive mode\n");
@@ -742,17 +748,47 @@ int main(int argc, char** argv) {
                 forward(&config, &weights, &state, token, pos++);
             }
             
-            // Generate response
-            for (int i = 0; i < max_tokens && pos < config.max_seq_len; i++) {
+            // Generate response into a buffer, same regulated-completion
+            // rule as single-shot mode: extend past max_tokens until a
+            // sentence actually ends (bounded only by max_seq_len), then
+            // trim to it.
+            char output_buffer[4096];
+            int output_len = 0;
+
+            for (int i = 0; pos < config.max_seq_len; i++) {
                 int next = sample_top_p(state.logits, config.vocab_size, temperature, top_p);
                 char c = decode_char(&tokenizer, next);
-                
-                printf("%c", c);
-                fflush(stdout);
-                
+
+                if (output_len < (int)sizeof(output_buffer) - 1) {
+                    output_buffer[output_len++] = c;
+                }
+
+                int sentence_end = (c == '.' || c == '!' || c == '?');
+
+                if (stop_on_newline && c == '\n') {
+                    break;
+                }
+                if (i + 1 >= max_tokens && sentence_end) {
+                    break;
+                }
+
                 forward(&config, &weights, &state, next, pos++);
             }
-            
+            output_buffer[output_len] = '\0';
+
+            // Trim to last complete sentence (safety net for the sentence_cap edge case)
+            int last_end = -1;
+            for (int i = output_len - 1; i >= 0; i--) {
+                if (output_buffer[i] == '.' || output_buffer[i] == '!' || output_buffer[i] == '?') {
+                    last_end = i;
+                    break;
+                }
+            }
+            if (last_end >= 0) {
+                output_buffer[last_end + 1] = '\0';
+            }
+
+            printf("%s", output_buffer);
             printf("\n\n");
         }
         
@@ -788,26 +824,36 @@ int main(int argc, char** argv) {
         // Generate into buffer so we can trim to last sentence
         char output_buffer[4096];
         int output_len = 0;
-        
-        // Generate
+
+        // Generate. max_tokens is a floor, not a hard ceiling: once past it
+        // we keep going until a sentence actually ends, so output is never
+        // truncated mid-thought. config.max_seq_len (KV cache depth) is the
+        // only real ceiling — no arbitrary grace budget on top of it.
         clock_t start = clock();
         int generated = 0;
-        
-        for (int i = 0; i < max_tokens && pos < config.max_seq_len; i++) {
+
+        for (int i = 0; pos < config.max_seq_len; i++) {
             int next = sample_top_p(state.logits, config.vocab_size, temperature, top_p);
             char c = decode_char(&tokenizer, next);
-            
+
             // Store in buffer
             if (output_len < (int)sizeof(output_buffer) - 1) {
                 output_buffer[output_len++] = c;
             }
             generated++;
-            
+
+            int sentence_end = (c == '.' || c == '!' || c == '?');
+
             // Stop on newline (token 0 = '\n' in our tokenizer)
             if (stop_on_newline && c == '\n') {
                 break;
             }
-            
+
+            // Past the requested length and landed on a sentence boundary — stop.
+            if (i + 1 >= max_tokens && sentence_end) {
+                break;
+            }
+
             forward(&config, &weights, &state, next, pos++);
         }
         output_buffer[output_len] = '\0';
