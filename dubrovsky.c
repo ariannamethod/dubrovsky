@@ -692,10 +692,68 @@ typedef struct {
     int len;
     int tokens_generated;
     GenExitReason exit_reason;
-    float sum_neg_log_prob;  // unused until the temperature-sweep step wires it up
+    float sum_neg_log_prob;  // temp=1.0 basis, see generate_regulated's raw_logits
 } GenResult;
 
 typedef struct { float perplexity, resonance, cleanliness; } CandidateFeatures;
+
+// Processes the prompt char-by-char through forward(), clamping prompt_len
+// against max_seq_len first (pos walks the KV cache with no bound check
+// otherwise — full_prompt buffers are far larger than a safe prompt
+// length). For i>0, scores each actual next-char's probability under the
+// model's own logits from the PRIOR position (a free byproduct of that
+// position's forward() call) — averages to prompt perplexity in nats/char.
+// i==0 is unscored: there is no prior context, and RunState is calloc'd so
+// logits before the first forward() call is all zeros, not a real
+// distribution.
+float process_prompt_and_score(Config* c, Weights* w, RunState* s, Tokenizer* t,
+                                char* full_prompt, int* prompt_len, int* pos) {
+    int max_prompt_len = c->max_seq_len - PROMPT_RESERVED_BUDGET;
+    if (max_prompt_len < 0) max_prompt_len = 0;
+    if (*prompt_len > max_prompt_len) {
+        fprintf(stderr, "⚠️  prompt too long (%d chars), truncating to %d to leave room for generation\n",
+                *prompt_len, max_prompt_len);
+        *prompt_len = max_prompt_len;
+        full_prompt[*prompt_len] = '\0';
+    }
+
+    float raw_logits[c->vocab_size];
+    float sum_neg_log_prob = 0.0f;
+    int scored_chars = 0;
+
+    for (int i = 0; i < *prompt_len; i++) {
+        int token = encode_char(t, full_prompt[i]);
+
+        if (i > 0) {
+            memcpy(raw_logits, s->logits, c->vocab_size * sizeof(float));
+            softmax(raw_logits, c->vocab_size);
+            float p = raw_logits[token];
+            if (p < 1e-9f) p = 1e-9f;
+            sum_neg_log_prob += -logf(p);
+            scored_chars++;
+        }
+
+        forward(c, w, s, token, (*pos)++);
+    }
+
+    return (scored_chars > 0) ? (sum_neg_log_prob / scored_chars) : 0.0f;
+}
+
+// Bucketed dissonance->temperature mapping — same discrete-state pattern
+// as dario.c/haiku.c's auto_velocity() (dissonance bucketed into a few
+// states, each with a fixed temperature), re-keyed on perplexity nats/char
+// instead of their word-vocabulary dissonance metric. vocab_size=88 bounds
+// max entropy at ln(88)≈4.48 nats. At the chaotic ceiling, softmax at
+// temp=2.2 over 88 chars already saturates toward near-uniform — visibly
+// noisy output emerges from the existing sampler, no separate hardcoded
+// "I don't understand" fallback needed.
+float temperature_from_perplexity(float perplexity) {
+    if (perplexity < 1.0f) return 0.6f;
+    if (perplexity < 1.8f) return 0.8f;   // today's CLI default, unchanged
+    if (perplexity < 2.6f) return 1.1f;
+    if (perplexity < 3.4f) return 1.5f;
+    return 2.2f;
+}
 
 // Shared regulated-completion generation loop, extracted verbatim from the
 // previously-duplicated interactive/single-shot loops (behavior unchanged):
@@ -898,7 +956,7 @@ void print_usage(char* prog) {
     printf("Options:\n");
     printf("  -p <prompt>       Prompt text\n");
     printf("  -n <tokens>       Max new tokens (default: 100)\n");
-    printf("  -t <temp>         Temperature (default: 0.8, 0 = greedy)\n");
+    printf("  -t <temp>         Temperature (default: auto, from prompt perplexity; 0 = greedy)\n");
     printf("  -P <topp>         Top-p sampling (default: 0.9)\n");
     printf("  -s <seed>         Random seed\n");
     printf("  -i                Interactive mode\n");
@@ -936,7 +994,8 @@ int main(int argc, char** argv) {
     char* prompt = "Q: What is consciousness?\nA: Dubrovsky ";
     char* tokenizer_path = "subtitles/tokenizer.json";
     int max_tokens = 100;
-    float temperature = 0.8f;
+    float temperature = -1.0f;  // sentinel: "auto" — resolved per-prompt from
+                                 // perplexity unless -t sets a real value
     float top_p = 0.9f;
     int interactive = 0;
     int stop_on_newline = 1;  // Stop on newline by default
@@ -972,6 +1031,11 @@ int main(int argc, char** argv) {
         fprintf(stderr, "⚠️  -N %d exceeds max %d, clamping\n", n_candidates_override, RAE_MAX_CANDIDATES);
         n_candidates_override = RAE_MAX_CANDIDATES;
     }
+
+    // -t not passed -> auto: resolve per-prompt from perplexity every turn
+    // (recomputed fresh each call, not frozen after the first). -t 0 stays
+    // explicit greedy; any other -t value stays a fixed explicit override.
+    int temperature_is_auto = (temperature < 0.0f);
     
     srand(seed);
     
@@ -1047,24 +1111,13 @@ int main(int argc, char** argv) {
             int pos = 0;
             int prompt_len = strlen(full_prompt);
 
-            // Clamp: pos walks the KV cache (size max_seq_len) with no bound
-            // check below, and full_prompt[2048] is far larger than a safe
-            // prompt length. Without this, a long prompt overruns key_cache/
-            // value_cache during this very loop (heap buffer overflow).
-            int max_prompt_len = config.max_seq_len - PROMPT_RESERVED_BUDGET;
-            if (max_prompt_len < 0) max_prompt_len = 0;
-            if (prompt_len > max_prompt_len) {
-                fprintf(stderr, "⚠️  prompt too long (%d chars), truncating to %d to leave room for generation\n",
-                        prompt_len, max_prompt_len);
-                prompt_len = max_prompt_len;
-            }
+            float prompt_perplexity = process_prompt_and_score(&config, &weights, &state,
+                                                                 &tokenizer, full_prompt,
+                                                                 &prompt_len, &pos);
+            float effective_temp = temperature_is_auto
+                ? temperature_from_perplexity(prompt_perplexity)
+                : temperature;
 
-            // Process prompt
-            for (int i = 0; i < prompt_len; i++) {
-                int token = encode_char(&tokenizer, full_prompt[i]);
-                forward(&config, &weights, &state, token, pos++);
-            }
-            
             // Words for resonance scoring come from the raw user line
             // (`input`), not `full_prompt` — the latter contains the
             // "Q: ... A: Dubrovsky " template, which would bias resonance
@@ -1083,11 +1136,11 @@ int main(int argc, char** argv) {
             kv_snapshot_save(&snap, &state, &config, pos);
             GenResult candidates[RAE_MAX_CANDIDATES];
             float temps[RAE_MAX_CANDIDATES];
-            if (temperature <= 0.0f) {
+            if (effective_temp <= 0.0f) {
                 n_cand = 1;
-                temps[0] = temperature;
+                temps[0] = effective_temp;
             } else {
-                build_temperature_sweep(temperature, temps, n_cand);
+                build_temperature_sweep(effective_temp, temps, n_cand);
             }
             int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
                                      n_cand, temps, top_p, max_tokens, stop_on_newline,
@@ -1115,31 +1168,19 @@ int main(int argc, char** argv) {
         
         prompt_len = strlen(full_prompt);
 
-        // Clamp: pos walks the KV cache (size max_seq_len) with no bound
-        // check below, and full_prompt[2048] is far larger than a safe
-        // prompt length. Without this, a long prompt overruns key_cache/
-        // value_cache during this very loop (heap buffer overflow).
-        int max_prompt_len = config.max_seq_len - PROMPT_RESERVED_BUDGET;
-        if (max_prompt_len < 0) max_prompt_len = 0;
-        if (prompt_len > max_prompt_len) {
-            fprintf(stderr, "⚠️  prompt too long (%d chars), truncating to %d to leave room for generation\n",
-                    prompt_len, max_prompt_len);
-            prompt_len = max_prompt_len;
-            full_prompt[prompt_len] = '\0';
-        }
+        int pos = 0;
+
+        float prompt_perplexity = process_prompt_and_score(&config, &weights, &state,
+                                                             &tokenizer, full_prompt,
+                                                             &prompt_len, &pos);
+        float effective_temp = temperature_is_auto
+            ? temperature_from_perplexity(prompt_perplexity)
+            : temperature;
 
         printf("📝 Prompt: %s\n", full_prompt);
         printf("%s", "============================================================\n");
-
-        int pos = 0;
-
-        // Process prompt
         printf("%s", full_prompt);
-        for (int i = 0; i < prompt_len; i++) {
-            int token = encode_char(&tokenizer, full_prompt[i]);
-            forward(&config, &weights, &state, token, pos++);
-        }
-        
+
         // Words for resonance scoring come from the raw CLI `prompt`, not
         // `full_prompt` — the latter may carry an appended "\nA: " suffix
         // that isn't part of what the user actually said.
@@ -1157,11 +1198,11 @@ int main(int argc, char** argv) {
         kv_snapshot_save(&snap, &state, &config, pos);
         GenResult candidates[RAE_MAX_CANDIDATES];
         float temps[RAE_MAX_CANDIDATES];
-        if (temperature <= 0.0f) {
+        if (effective_temp <= 0.0f) {
             n_cand = 1;
-            temps[0] = temperature;
+            temps[0] = effective_temp;
         } else {
-            build_temperature_sweep(temperature, temps, n_cand);
+            build_temperature_sweep(effective_temp, temps, n_cand);
         }
         clock_t start = clock();
         int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
