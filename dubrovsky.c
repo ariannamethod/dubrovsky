@@ -733,6 +733,25 @@ void generate_regulated(Config* c, Weights* w, RunState* s, Tokenizer* t,
     }
 }
 
+// Runs n_candidates independent generations from the same post-prompt
+// snapshot (each candidate restores fresh, so they don't see each other's
+// output), returns the index of the best one. At N=1 this is just
+// snapshot-restore-then-generate with a trivial winner — real scoring
+// (perplexity/resonance/cleanliness) lands in the next build step.
+int rae_select(Config* c, Weights* w, RunState* s, Tokenizer* t,
+                KVSnapshot* snap, int n_candidates, const float* temperatures,
+                float top_p, int max_tokens, int stop_on_newline,
+                GenResult* candidates_out) {
+    if (n_candidates < 1) n_candidates = 1;
+    for (int i = 0; i < n_candidates; i++) {
+        int pos;
+        kv_snapshot_restore(s, snap, c, &pos);
+        generate_regulated(c, w, s, t, &pos, temperatures[i], top_p,
+                            max_tokens, stop_on_newline, &candidates_out[i]);
+    }
+    return 0;  // trivial winner until scoring lands
+}
+
 /* ============================================================================
  * Main
  * ============================================================================ */
@@ -895,20 +914,16 @@ int main(int argc, char** argv) {
                 forward(&config, &weights, &state, token, pos++);
             }
             
-            // Snapshot the post-prompt state — RAE step 1: prove the
-            // round-trip is a no-op before building real N>1 selection on
-            // top of it.
+            // Snapshot the post-prompt state, then run it through the real
+            // RAE control flow (N=1 for now — scoring/N>1 land next).
             kv_snapshot_save(&snap, &state, &config, pos);
-            kv_snapshot_restore(&state, &snap, &config, &pos);
+            GenResult candidates[1];
+            float temps[1] = { temperature };
+            int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
+                                     1, temps, top_p, max_tokens, stop_on_newline,
+                                     candidates);
 
-            // Generate response: max_tokens is a floor, not a hard ceiling —
-            // generation runs past it until a sentence actually ends.
-            GenResult result;
-            generate_regulated(&config, &weights, &state, &tokenizer, &pos,
-                                temperature, top_p, max_tokens, stop_on_newline,
-                                &result);
-
-            printf("%s", result.text);
+            printf("%s", candidates[winner].text);
             printf("\n\n");
         }
         
@@ -954,23 +969,18 @@ int main(int argc, char** argv) {
             forward(&config, &weights, &state, token, pos++);
         }
         
-        // Snapshot the post-prompt state — RAE step 1: prove the round-trip
-        // is a no-op before building real N>1 selection on top of it.
+        // Snapshot the post-prompt state, then run it through the real RAE
+        // control flow (N=1 for now — scoring/N>1 land next).
         kv_snapshot_save(&snap, &state, &config, pos);
-        kv_snapshot_restore(&state, &snap, &config, &pos);
-
-        // Generate. max_tokens is a floor, not a hard ceiling: once past it
-        // we keep going until a sentence actually ends, so output is never
-        // truncated mid-thought. config.max_seq_len (KV cache depth) is the
-        // only real ceiling — no arbitrary grace budget on top of it.
+        GenResult candidates[1];
+        float temps[1] = { temperature };
         clock_t start = clock();
-        GenResult result;
-        generate_regulated(&config, &weights, &state, &tokenizer, &pos,
-                            temperature, top_p, max_tokens, stop_on_newline,
-                            &result);
+        int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
+                                 1, temps, top_p, max_tokens, stop_on_newline,
+                                 candidates);
 
         // Print the trimmed output
-        printf("%s", result.text);
+        printf("%s", candidates[winner].text);
 
         clock_t end = clock();
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
@@ -978,9 +988,10 @@ int main(int argc, char** argv) {
         printf("\n============================================================\n");
         if (elapsed > 0.001) {
             printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n",
-                   result.tokens_generated, elapsed, result.tokens_generated / elapsed);
+                   candidates[winner].tokens_generated, elapsed,
+                   candidates[winner].tokens_generated / elapsed);
         } else {
-            printf("⏱️  Generated %d tokens\n", result.tokens_generated);
+            printf("⏱️  Generated %d tokens\n", candidates[winner].tokens_generated);
         }
     }
     
