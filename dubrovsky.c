@@ -706,8 +706,13 @@ typedef struct { float perplexity, resonance, cleanliness; } CandidateFeatures;
 // i==0 is unscored: there is no prior context, and RunState is calloc'd so
 // logits before the first forward() call is all zeros, not a real
 // distribution.
+// char_neg_log_prob is nullable: when given, must be sized to hold
+// *prompt_len entries (caller's original, pre-clamp length is always a
+// safe upper bound) — filled with each char's per-position -log(prob)
+// (0.0 for i==0, unscored) for pick_most_surprising_word to consume.
 float process_prompt_and_score(Config* c, Weights* w, RunState* s, Tokenizer* t,
-                                char* full_prompt, int* prompt_len, int* pos) {
+                                char* full_prompt, int* prompt_len, int* pos,
+                                float* char_neg_log_prob) {
     int max_prompt_len = c->max_seq_len - PROMPT_RESERVED_BUDGET;
     if (max_prompt_len < 0) max_prompt_len = 0;
     if (*prompt_len > max_prompt_len) {
@@ -723,15 +728,18 @@ float process_prompt_and_score(Config* c, Weights* w, RunState* s, Tokenizer* t,
 
     for (int i = 0; i < *prompt_len; i++) {
         int token = encode_char(t, full_prompt[i]);
+        float nlp = 0.0f;
 
         if (i > 0) {
             memcpy(raw_logits, s->logits, c->vocab_size * sizeof(float));
             softmax(raw_logits, c->vocab_size);
             float p = raw_logits[token];
             if (p < 1e-9f) p = 1e-9f;
-            sum_neg_log_prob += -logf(p);
+            nlp = -logf(p);
+            sum_neg_log_prob += nlp;
             scored_chars++;
         }
+        if (char_neg_log_prob) char_neg_log_prob[i] = nlp;
 
         forward(c, w, s, token, (*pos)++);
     }
@@ -755,19 +763,91 @@ float temperature_from_perplexity(float perplexity) {
     return 2.2f;
 }
 
+// Scans text[0..len) for alnum word spans (length >= 3, matching
+// extract_words' truncate-don't-overflow idiom), scores each by the
+// average per-char surprisal (char_neg_log_prob, same indexing as text)
+// over its span, and picks the single highest-scoring word — the user's
+// most surprising/salient word, the injection candidate for Priority 3.
+// Returns 0 (no eligible word — out_word untouched) or 1 (out_word filled).
+int pick_most_surprising_word(const char* text, int len, const float* char_neg_log_prob,
+                               char* out_word, int out_word_maxlen) {
+    int best_start = -1, best_end = -1;
+    float best_avg = -1.0f;
+
+    int i = 0;
+    while (i < len) {
+        while (i < len && !isalnum((unsigned char)text[i])) i++;
+        if (i >= len) break;
+        int start = i;
+        float sum = 0.0f;
+        int n = 0;
+        while (i < len && isalnum((unsigned char)text[i])) {
+            sum += char_neg_log_prob[i];
+            n++;
+            i++;
+        }
+        if (n >= 3) {
+            float avg = sum / n;
+            if (avg > best_avg) {
+                best_avg = avg;
+                best_start = start;
+                best_end = i;
+            }
+        }
+    }
+
+    if (best_start < 0) return 0;
+
+    int wlen = best_end - best_start;
+    if (wlen > out_word_maxlen - 1) wlen = out_word_maxlen - 1;
+    memcpy(out_word, text + best_start, wlen);
+    out_word[wlen] = '\0';
+    return 1;
+}
+
+// Force-feeds " " + word + " " through forward() char-by-char — exactly
+// how the prompt itself is consumed, no sampling — appends the same
+// source bytes to the output buffer and advances *pos. Returns 0 (no-op,
+// caller must skip) if it would exceed max_seq_len or overflow the output
+// buffer — never truncates mid-word.
+int inject_word(Config* c, Weights* w, RunState* s, Tokenizer* t,
+                 const char* word, int* pos, char* out_buf, int* out_len, int out_cap) {
+    char padded[WORD_MAXLEN + 2];
+    int wlen = (int)strlen(word);
+    if (wlen > WORD_MAXLEN) wlen = WORD_MAXLEN;
+    padded[0] = ' ';
+    memcpy(padded + 1, word, wlen);
+    padded[1 + wlen] = ' ';
+    int total = wlen + 2;
+
+    if (*pos + total > c->max_seq_len) return 0;
+    if (*out_len + total > out_cap - 1) return 0;
+
+    for (int i = 0; i < total; i++) {
+        int token = encode_char(t, padded[i]);
+        out_buf[(*out_len)++] = padded[i];
+        forward(c, w, s, token, (*pos)++);
+    }
+    return 1;
+}
+
 // Shared regulated-completion generation loop, extracted verbatim from the
 // previously-duplicated interactive/single-shot loops (behavior unchanged):
 // max_tokens is a floor, not a hard ceiling — once past it, generation
 // continues until a sentence actually ends, bounded only by max_seq_len (KV
-// cache depth).
+// cache depth). inject_word_str (nullable, NULL = disabled) re-injects the
+// user's most surprising prompt word at the first sentence boundary, once
+// per candidate — steers a longer ramble back toward what the user said.
 void generate_regulated(Config* c, Weights* w, RunState* s, Tokenizer* t,
                          int* pos, float temperature, float top_p,
                          int max_tokens, int stop_on_newline,
+                         const char* inject_word_str,
                          GenResult* out) {
     out->len = 0;
     out->tokens_generated = 0;
     out->sum_neg_log_prob = 0.0f;
     out->exit_reason = GEN_EXIT_MAX_SEQ_LEN;
+    int already_injected = 0;
 
     // Scratch for the fairness-fixed perplexity measurement below.
     float raw_logits[c->vocab_size];
@@ -810,6 +890,16 @@ void generate_regulated(Config* c, Weights* w, RunState* s, Tokenizer* t,
         }
 
         forward(c, w, s, next, (*pos)++);
+
+        // Only reached on iterations that did NOT break above — the model
+        // has "read" the sentence-ending char, and generation is going to
+        // continue past this point, so there's future output left to steer.
+        if (inject_word_str && !already_injected && sentence_end) {
+            if (inject_word(c, w, s, t, inject_word_str, pos,
+                             out->text, &out->len, (int)sizeof(out->text))) {
+                already_injected = 1;
+            }
+        }
     }
     out->text[out->len] = '\0';
 
@@ -916,6 +1006,7 @@ void build_temperature_sweep(float base_temp, float* out_temps, int n) {
 int rae_select(Config* c, Weights* w, RunState* s, Tokenizer* t,
                 KVSnapshot* snap, int n_candidates, const float* temperatures,
                 float top_p, int max_tokens, int stop_on_newline,
+                const char* inject_word_str,
                 char prompt_words[][WORD_MAXLEN], int n_prompt_words,
                 int debug, GenResult* candidates_out) {
     if (n_candidates < 1) n_candidates = 1;
@@ -925,7 +1016,8 @@ int rae_select(Config* c, Weights* w, RunState* s, Tokenizer* t,
         int pos;
         kv_snapshot_restore(s, snap, c, &pos);
         generate_regulated(c, w, s, t, &pos, temperatures[i], top_p,
-                            max_tokens, stop_on_newline, &candidates_out[i]);
+                            max_tokens, stop_on_newline, inject_word_str,
+                            &candidates_out[i]);
 
         CandidateFeatures feat;
         score_candidate_features(&candidates_out[i], prompt_words, n_prompt_words, &feat);
@@ -966,6 +1058,8 @@ void print_usage(char* prog) {
     printf("                    (default: %d single-shot, %d interactive)\n",
            RAE_DEFAULT_N_SINGLE_SHOT, RAE_DEFAULT_N_INTERACTIVE);
     printf("  --rae-debug       Dump each RAE candidate's score/features to stderr\n");
+    printf("  --inject          Re-inject the prompt's most surprising word at a\n");
+    printf("                    sentence boundary, to steer generation back to it\n");
     printf("\nExample:\n");
     printf("  %s subtitles/dubrovsky.bin -p \"Q: What is life?\"\n", prog);
 }
@@ -1002,6 +1096,7 @@ int main(int argc, char** argv) {
     unsigned int seed = (unsigned int)time(NULL);
     int n_candidates_override = -1;  // -1 = use per-mode default
     int rae_debug = 0;
+    int inject_enabled = 0;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
@@ -1024,6 +1119,8 @@ int main(int argc, char** argv) {
             n_candidates_override = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--rae-debug") == 0) {
             rae_debug = 1;
+        } else if (strcmp(argv[i], "--inject") == 0) {
+            inject_enabled = 1;
         }
     }
 
@@ -1111,19 +1208,37 @@ int main(int argc, char** argv) {
             int pos = 0;
             int prompt_len = strlen(full_prompt);
 
+            float char_nlp[2048];
             float prompt_perplexity = process_prompt_and_score(&config, &weights, &state,
                                                                  &tokenizer, full_prompt,
-                                                                 &prompt_len, &pos);
+                                                                 &prompt_len, &pos, char_nlp);
             float effective_temp = temperature_is_auto
                 ? temperature_from_perplexity(prompt_perplexity)
                 : temperature;
 
-            // Words for resonance scoring come from the raw user line
-            // (`input`), not `full_prompt` — the latter contains the
-            // "Q: ... A: Dubrovsky " template, which would bias resonance
-            // toward candidates that just repeat "Dubrovsky"/"Q:"/"A:".
+            // Words for resonance scoring — and the injection candidate
+            // below — come from the raw user line (`input`), not
+            // `full_prompt`. The latter contains the "Q: ... A: Dubrovsky "
+            // template, which would bias resonance toward candidates that
+            // just repeat "Dubrovsky"/"Q:"/"A:", and would make injection
+            // pick one of those template words instead of anything the
+            // user actually said. `input` starts at offset 3 in
+            // full_prompt ("Q: " prefix) — char_nlp is indexed the same
+            // way, so slice both at the same offset.
             char prompt_words[MAX_WORD_SPANS][WORD_MAXLEN];
             int n_prompt_words = extract_words(input, (int)strlen(input), prompt_words, MAX_WORD_SPANS);
+
+            char inject_word_buf[WORD_MAXLEN];
+            const char* inject_word_str = NULL;
+            if (inject_enabled) {
+                int raw_len = (int)strlen(input);
+                if (3 + raw_len > prompt_len) raw_len = prompt_len - 3;
+                if (raw_len > 0 &&
+                    pick_most_surprising_word(input, raw_len, char_nlp + 3,
+                                               inject_word_buf, WORD_MAXLEN)) {
+                    inject_word_str = inject_word_buf;
+                }
+            }
 
             int n_cand = (n_candidates_override > 0) ? n_candidates_override : RAE_DEFAULT_N_INTERACTIVE;
             if (n_cand > RAE_MAX_CANDIDATES) n_cand = RAE_MAX_CANDIDATES;
@@ -1144,7 +1259,7 @@ int main(int argc, char** argv) {
             }
             int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
                                      n_cand, temps, top_p, max_tokens, stop_on_newline,
-                                     prompt_words, n_prompt_words, rae_debug,
+                                     inject_word_str, prompt_words, n_prompt_words, rae_debug,
                                      candidates);
 
             printf("%s", candidates[winner].text);
@@ -1170,9 +1285,10 @@ int main(int argc, char** argv) {
 
         int pos = 0;
 
+        float char_nlp[2048];
         float prompt_perplexity = process_prompt_and_score(&config, &weights, &state,
                                                              &tokenizer, full_prompt,
-                                                             &prompt_len, &pos);
+                                                             &prompt_len, &pos, char_nlp);
         float effective_temp = temperature_is_auto
             ? temperature_from_perplexity(prompt_perplexity)
             : temperature;
@@ -1181,11 +1297,26 @@ int main(int argc, char** argv) {
         printf("%s", "============================================================\n");
         printf("%s", full_prompt);
 
-        // Words for resonance scoring come from the raw CLI `prompt`, not
-        // `full_prompt` — the latter may carry an appended "\nA: " suffix
-        // that isn't part of what the user actually said.
+        // Words for resonance scoring — and the injection candidate below —
+        // come from the raw CLI `prompt`, not `full_prompt`, which may
+        // carry an appended "\nA: " suffix that isn't part of what the
+        // user actually said. `prompt` sits at offset 0 in full_prompt
+        // (only a suffix is ever appended, never a prefix), so char_nlp
+        // needs no offset here — unlike the interactive site.
         char prompt_words[MAX_WORD_SPANS][WORD_MAXLEN];
         int n_prompt_words = extract_words(prompt, (int)strlen(prompt), prompt_words, MAX_WORD_SPANS);
+
+        char inject_word_buf[WORD_MAXLEN];
+        const char* inject_word_str = NULL;
+        if (inject_enabled) {
+            int raw_len = (int)strlen(prompt);
+            if (raw_len > prompt_len) raw_len = prompt_len;
+            if (raw_len > 0 &&
+                pick_most_surprising_word(prompt, raw_len, char_nlp,
+                                           inject_word_buf, WORD_MAXLEN)) {
+                inject_word_str = inject_word_buf;
+            }
+        }
 
         int n_cand = (n_candidates_override > 0) ? n_candidates_override : RAE_DEFAULT_N_SINGLE_SHOT;
         if (n_cand > RAE_MAX_CANDIDATES) n_cand = RAE_MAX_CANDIDATES;
@@ -1207,7 +1338,7 @@ int main(int argc, char** argv) {
         clock_t start = clock();
         int winner = rae_select(&config, &weights, &state, &tokenizer, &snap,
                                  n_cand, temps, top_p, max_tokens, stop_on_newline,
-                                 prompt_words, n_prompt_words, rae_debug,
+                                 inject_word_str, prompt_words, n_prompt_words, rae_debug,
                                  candidates);
 
         // Print the trimmed output
