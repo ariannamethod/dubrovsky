@@ -607,6 +607,82 @@ char decode_char(Tokenizer* t, int id) {
 }
 
 /* ============================================================================
+ * Generation
+ * ============================================================================ */
+
+typedef enum {
+    GEN_EXIT_SENTENCE,     // stopped cleanly: sentence_end && i+1>=max_tokens
+    GEN_EXIT_NEWLINE,      // stopped on '\n' with stop_on_newline
+    GEN_EXIT_MAX_SEQ_LEN,  // ran out of KV cache without a clean stop
+    GEN_EXIT_BUFFER_FULL   // hit sizeof(text)-1 (unreachable while max_seq_len
+                            // stays well under sizeof(text); kept for completeness)
+} GenExitReason;
+
+typedef struct {
+    char text[4096];
+    int len;
+    int tokens_generated;
+    GenExitReason exit_reason;
+    float sum_neg_log_prob;  // unused until the temperature-sweep step wires it up
+} GenResult;
+
+// Shared regulated-completion generation loop, extracted verbatim from the
+// previously-duplicated interactive/single-shot loops (behavior unchanged):
+// max_tokens is a floor, not a hard ceiling — once past it, generation
+// continues until a sentence actually ends, bounded only by max_seq_len (KV
+// cache depth).
+void generate_regulated(Config* c, Weights* w, RunState* s, Tokenizer* t,
+                         int* pos, float temperature, float top_p,
+                         int max_tokens, int stop_on_newline,
+                         GenResult* out) {
+    out->len = 0;
+    out->tokens_generated = 0;
+    out->sum_neg_log_prob = 0.0f;
+    out->exit_reason = GEN_EXIT_MAX_SEQ_LEN;
+
+    for (int i = 0; *pos < c->max_seq_len; i++) {
+        int next = sample_top_p(s->logits, c->vocab_size, temperature, top_p);
+        char ch = decode_char(t, next);
+
+        if (out->len < (int)sizeof(out->text) - 1) {
+            out->text[out->len++] = ch;
+        } else {
+            out->exit_reason = GEN_EXIT_BUFFER_FULL;
+            break;
+        }
+        out->tokens_generated++;
+
+        int sentence_end = (ch == '.' || ch == '!' || ch == '?');
+
+        if (stop_on_newline && ch == '\n') {
+            out->exit_reason = GEN_EXIT_NEWLINE;
+            break;
+        }
+        if (i + 1 >= max_tokens && sentence_end) {
+            out->exit_reason = GEN_EXIT_SENTENCE;
+            break;
+        }
+
+        forward(c, w, s, next, (*pos)++);
+    }
+    out->text[out->len] = '\0';
+
+    // Trim to last complete sentence (safety net for the rare case
+    // generation never landed on '.'/'!'/'?' within budget).
+    int last_end = -1;
+    for (int i = out->len - 1; i >= 0; i--) {
+        if (out->text[i] == '.' || out->text[i] == '!' || out->text[i] == '?') {
+            last_end = i;
+            break;
+        }
+    }
+    if (last_end >= 0) {
+        out->text[last_end + 1] = '\0';
+        out->len = last_end + 1;
+    }
+}
+
+/* ============================================================================
  * Main
  * ============================================================================ */
 
@@ -765,47 +841,14 @@ int main(int argc, char** argv) {
                 forward(&config, &weights, &state, token, pos++);
             }
             
-            // Generate response into a buffer, same regulated-completion
-            // rule as single-shot mode: extend past max_tokens until a
-            // sentence actually ends (bounded only by max_seq_len), then
-            // trim to it.
-            char output_buffer[4096];
-            int output_len = 0;
+            // Generate response: max_tokens is a floor, not a hard ceiling —
+            // generation runs past it until a sentence actually ends.
+            GenResult result;
+            generate_regulated(&config, &weights, &state, &tokenizer, &pos,
+                                temperature, top_p, max_tokens, stop_on_newline,
+                                &result);
 
-            for (int i = 0; pos < config.max_seq_len; i++) {
-                int next = sample_top_p(state.logits, config.vocab_size, temperature, top_p);
-                char c = decode_char(&tokenizer, next);
-
-                if (output_len < (int)sizeof(output_buffer) - 1) {
-                    output_buffer[output_len++] = c;
-                }
-
-                int sentence_end = (c == '.' || c == '!' || c == '?');
-
-                if (stop_on_newline && c == '\n') {
-                    break;
-                }
-                if (i + 1 >= max_tokens && sentence_end) {
-                    break;
-                }
-
-                forward(&config, &weights, &state, next, pos++);
-            }
-            output_buffer[output_len] = '\0';
-
-            // Trim to last complete sentence (safety net for the sentence_cap edge case)
-            int last_end = -1;
-            for (int i = output_len - 1; i >= 0; i--) {
-                if (output_buffer[i] == '.' || output_buffer[i] == '!' || output_buffer[i] == '?') {
-                    last_end = i;
-                    break;
-                }
-            }
-            if (last_end >= 0) {
-                output_buffer[last_end + 1] = '\0';
-            }
-
-            printf("%s", output_buffer);
+            printf("%s", result.text);
             printf("\n\n");
         }
         
@@ -851,67 +894,28 @@ int main(int argc, char** argv) {
             forward(&config, &weights, &state, token, pos++);
         }
         
-        // Generate into buffer so we can trim to last sentence
-        char output_buffer[4096];
-        int output_len = 0;
-
         // Generate. max_tokens is a floor, not a hard ceiling: once past it
         // we keep going until a sentence actually ends, so output is never
         // truncated mid-thought. config.max_seq_len (KV cache depth) is the
         // only real ceiling — no arbitrary grace budget on top of it.
         clock_t start = clock();
-        int generated = 0;
+        GenResult result;
+        generate_regulated(&config, &weights, &state, &tokenizer, &pos,
+                            temperature, top_p, max_tokens, stop_on_newline,
+                            &result);
 
-        for (int i = 0; pos < config.max_seq_len; i++) {
-            int next = sample_top_p(state.logits, config.vocab_size, temperature, top_p);
-            char c = decode_char(&tokenizer, next);
-
-            // Store in buffer
-            if (output_len < (int)sizeof(output_buffer) - 1) {
-                output_buffer[output_len++] = c;
-            }
-            generated++;
-
-            int sentence_end = (c == '.' || c == '!' || c == '?');
-
-            // Stop on newline (token 0 = '\n' in our tokenizer)
-            if (stop_on_newline && c == '\n') {
-                break;
-            }
-
-            // Past the requested length and landed on a sentence boundary — stop.
-            if (i + 1 >= max_tokens && sentence_end) {
-                break;
-            }
-
-            forward(&config, &weights, &state, next, pos++);
-        }
-        output_buffer[output_len] = '\0';
-        
-        // Trim to last complete sentence to avoid mid-word cutoff
-        int last_end = -1;
-        for (int i = output_len - 1; i >= 0; i--) {
-            if (output_buffer[i] == '.' || output_buffer[i] == '!' || output_buffer[i] == '?') {
-                last_end = i;
-                break;
-            }
-        }
-        if (last_end >= 0) {
-            output_buffer[last_end + 1] = '\0';
-        }
-        
         // Print the trimmed output
-        printf("%s", output_buffer);
-        
+        printf("%s", result.text);
+
         clock_t end = clock();
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
-        
+
         printf("\n============================================================\n");
         if (elapsed > 0.001) {
-            printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n", 
-                   generated, elapsed, generated / elapsed);
+            printf("⏱️  Generated %d tokens in %.2fs (%.1f tok/s)\n",
+                   result.tokens_generated, elapsed, result.tokens_generated / elapsed);
         } else {
-            printf("⏱️  Generated %d tokens\n", generated);
+            printf("⏱️  Generated %d tokens\n", result.tokens_generated);
         }
     }
     
