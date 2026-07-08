@@ -171,6 +171,57 @@ void free_run_state(RunState* s) {
 }
 
 /* ============================================================================
+ * KV Cache Snapshot — save/restore RunState's autoregressive state so RAE
+ * can replay the decode phase N times from the same post-prompt point.
+ * x/xb/xb2/hb/hb2/q/k/v/att need no snapshot: every forward() call
+ * overwrites them unconditionally (matmul assigns, never accumulates), so
+ * they carry no state across calls. key_cache/value_cache/logits/pos do.
+ * ============================================================================ */
+
+typedef struct {
+    float* key_cache;
+    float* value_cache;
+    float* logits;
+    int pos;
+} KVSnapshot;
+
+void kv_snapshot_alloc(KVSnapshot* snap, Config* c) {
+    int kv_dim = c->n_kv_heads * c->head_dim;
+    size_t cache_floats = (size_t)c->n_layers * c->max_seq_len * kv_dim;
+    snap->key_cache = malloc(cache_floats * sizeof(float));
+    snap->value_cache = malloc(cache_floats * sizeof(float));
+    snap->logits = malloc(c->vocab_size * sizeof(float));
+    if (!snap->key_cache || !snap->value_cache || !snap->logits) {
+        fprintf(stderr, "Memory allocation failed for KV snapshot!\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void kv_snapshot_save(KVSnapshot* snap, RunState* s, Config* c, int pos) {
+    int kv_dim = c->n_kv_heads * c->head_dim;
+    size_t cache_bytes = (size_t)c->n_layers * c->max_seq_len * kv_dim * sizeof(float);
+    memcpy(snap->key_cache, s->key_cache, cache_bytes);
+    memcpy(snap->value_cache, s->value_cache, cache_bytes);
+    memcpy(snap->logits, s->logits, c->vocab_size * sizeof(float));
+    snap->pos = pos;
+}
+
+void kv_snapshot_restore(RunState* s, KVSnapshot* snap, Config* c, int* pos) {
+    int kv_dim = c->n_kv_heads * c->head_dim;
+    size_t cache_bytes = (size_t)c->n_layers * c->max_seq_len * kv_dim * sizeof(float);
+    memcpy(s->key_cache, snap->key_cache, cache_bytes);
+    memcpy(s->value_cache, snap->value_cache, cache_bytes);
+    memcpy(s->logits, snap->logits, c->vocab_size * sizeof(float));
+    *pos = snap->pos;
+}
+
+void kv_snapshot_free(KVSnapshot* snap) {
+    free(snap->key_cache);
+    free(snap->value_cache);
+    free(snap->logits);
+}
+
+/* ============================================================================
  * Weight Memory Mapping
  * ============================================================================ */
 
@@ -794,7 +845,10 @@ int main(int argc, char** argv) {
     RunState state;
     memory_map_weights(&weights, &config, weight_data);
     malloc_run_state(&state, &config);
-    
+
+    KVSnapshot snap;
+    kv_snapshot_alloc(&snap, &config);
+
     printf("\n");
     
     if (interactive) {
@@ -841,6 +895,12 @@ int main(int argc, char** argv) {
                 forward(&config, &weights, &state, token, pos++);
             }
             
+            // Snapshot the post-prompt state — RAE step 1: prove the
+            // round-trip is a no-op before building real N>1 selection on
+            // top of it.
+            kv_snapshot_save(&snap, &state, &config, pos);
+            kv_snapshot_restore(&state, &snap, &config, &pos);
+
             // Generate response: max_tokens is a floor, not a hard ceiling —
             // generation runs past it until a sentence actually ends.
             GenResult result;
@@ -894,6 +954,11 @@ int main(int argc, char** argv) {
             forward(&config, &weights, &state, token, pos++);
         }
         
+        // Snapshot the post-prompt state — RAE step 1: prove the round-trip
+        // is a no-op before building real N>1 selection on top of it.
+        kv_snapshot_save(&snap, &state, &config, pos);
+        kv_snapshot_restore(&state, &snap, &config, &pos);
+
         // Generate. max_tokens is a floor, not a hard ceiling: once past it
         // we keep going until a sentence actually ends, so output is never
         // truncated mid-thought. config.max_seq_len (KV cache depth) is the
@@ -920,6 +985,7 @@ int main(int argc, char** argv) {
     }
     
     // Cleanup
+    kv_snapshot_free(&snap);
     free_run_state(&state);
     free(weight_data);
     
