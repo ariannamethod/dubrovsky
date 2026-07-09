@@ -1197,7 +1197,25 @@ int main(int argc, char** argv) {
             
             if (strcmp(input, "quit") == 0) break;
             if (strlen(input) == 0) continue;
-            
+
+            // Clamp the raw input BEFORE formatting, not full_prompt after —
+            // truncating the already-formatted string can eat the trailing
+            // "\nA: Dubrovsky " cue itself, leaving the model with no Q/A
+            // marker at all instead of just a shorter question.
+            {
+                int max_prompt_len = config.max_seq_len - PROMPT_RESERVED_BUDGET;
+                if (max_prompt_len < 0) max_prompt_len = 0;
+                int template_overhead = 3 + 14;  // "Q: " + "\nA: Dubrovsky "
+                int max_input_len = max_prompt_len - template_overhead;
+                if (max_input_len < 0) max_input_len = 0;
+                int input_len = (int)strlen(input);
+                if (input_len > max_input_len) {
+                    fprintf(stderr, "⚠️  input too long (%d chars), truncating to %d to leave room for generation\n",
+                            input_len, max_input_len);
+                    input[max_input_len] = '\0';
+                }
+            }
+
             // Format prompt
             char full_prompt[2048];
             snprintf(full_prompt, sizeof(full_prompt), "Q: %s\nA: Dubrovsky ", input);
@@ -1273,12 +1291,37 @@ int main(int argc, char** argv) {
         // Auto-format: if prompt looks like a question without "A:", add it
         char full_prompt[2048];
         int prompt_len = strlen(prompt);
-        
-        // Check if prompt ends with "?" and doesn't contain "A:" 
-        if (prompt_len > 0 && prompt[prompt_len-1] == '?' && strstr(prompt, "A:") == NULL) {
-            snprintf(full_prompt, sizeof(full_prompt), "%s\nA: ", prompt);
+
+        // Check if prompt ends with "?" and doesn't contain "A:"
+        int append_answer_cue = (prompt_len > 0 && prompt[prompt_len-1] == '?' && strstr(prompt, "A:") == NULL);
+
+        // Clamp a COPY of the raw prompt before formatting — `prompt` may
+        // point at argv or the default string literal, neither safe to
+        // truncate in place. Truncating the already-formatted full_prompt
+        // instead can eat the trailing "\nA: " cue itself, leaving the
+        // model with no Q/A marker at all instead of just a shorter
+        // question.
+        int suffix_len = append_answer_cue ? 4 : 0;  // strlen("\nA: ")
+        int max_prompt_len = config.max_seq_len - PROMPT_RESERVED_BUDGET;
+        if (max_prompt_len < 0) max_prompt_len = 0;
+        int max_raw_len = max_prompt_len - suffix_len;
+        if (max_raw_len < 0) max_raw_len = 0;
+
+        char clamped_prompt[2048];
+        int raw_len = prompt_len;
+        if (raw_len > max_raw_len) {
+            fprintf(stderr, "⚠️  prompt too long (%d chars), truncating to %d to leave room for generation\n",
+                    raw_len, max_raw_len);
+            raw_len = max_raw_len;
+        }
+        if (raw_len > (int)sizeof(clamped_prompt) - 1) raw_len = (int)sizeof(clamped_prompt) - 1;
+        memcpy(clamped_prompt, prompt, raw_len);
+        clamped_prompt[raw_len] = '\0';
+
+        if (append_answer_cue) {
+            snprintf(full_prompt, sizeof(full_prompt), "%s\nA: ", clamped_prompt);
         } else {
-            snprintf(full_prompt, sizeof(full_prompt), "%s", prompt);
+            snprintf(full_prompt, sizeof(full_prompt), "%s", clamped_prompt);
         }
         
         prompt_len = strlen(full_prompt);
