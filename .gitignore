@@ -67,3 +67,8 @@ train_lambda_boosted.sh
 setup_lambda.sh
 export_weights.py
 tokenizer.py
+
+# Private training inputs and experiment outputs
+.work/
+runs/
+*.safetensors

@@ -33,7 +33,9 @@ use PyTorch. The target inference runtime is
 
 Character, new associations, responsiveness, and freedom from repetitive loops
 guide evaluation. Training loss and conventional factual benchmarks do not
-replace those criteria. The Qwen3.5 training and runtime work is in progress.
+replace those criteria. The [training workflow](training/README.md) documents
+data preparation, nonthinking SFT, frozen language embeddings and DPO.
+The Qwen3.5 training and runtime work is in progress.
 
 ## Contributing
 
