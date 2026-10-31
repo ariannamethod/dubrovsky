@@ -22,7 +22,8 @@ Its 1,066 Q/A records contain 486 unique pairs. Exact deduplication leaves
 answers stay in the same split. Near-duplicate passages can remain.
 
 The supplied wording is preserved, including first- and third-person speech.
-The older `a.dubrovsky` subtitle sources remain separate from this first run.
+The older `a.dubrovsky` subtitle sources remain separate from the first SFT run;
+selected original first-person lines enter the subsequent preference stage.
 Raw corpus and derived training files stay outside tracked git files.
 
 ```sh
@@ -110,3 +111,28 @@ The SFT candidate is the fixed reference. Its answer-token log probabilities
 are computed before updates; the policy then trains the remaining language
 body with the DPO log-sigmoid objective. Candidate selection still requires
 post-training generations on prompts excluded from preference construction.
+
+`--chosen-nll-weight 1.0` adds preferred-answer token NLL to DPO. The default
+`0.0` is ordinary DPO. This option trains the chosen wording directly as well
+as preferring it over the rejected answer. Record both the preference set and
+the weight when comparing runs. The initial experiments changed both; their
+results are recorded in [EXPERIMENTS.md](EXPERIMENTS.md).
+
+For language work, follow the [literary translation instructions](translation_instructions.md).
+Keep translated records in their original source split and retain English
+examples when building a multilingual training mixture.
+
+## Prepare a selected release
+
+After character and language evaluation selects a candidate, package it with
+the existing native nonthinking prefix as the default:
+
+```sh
+python training/prepare_release.py .work/selected/candidate .work/release \
+  --model-card /path/to/reviewed-model-card.md
+```
+
+The helper checks tokenizer parity for English, Russian and Hebrew with the
+thinking option absent, false and true, then copies the candidate and records
+weight-file hashes. It performs no upload. Release selection and upload remain
+separate explicit steps; the first English experiments are still candidates.

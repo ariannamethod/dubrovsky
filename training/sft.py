@@ -126,7 +126,7 @@ def main():
         for row in validation:
             count = sum(x != -100 for x in row['labels'][1:])
             with torch.autocast('cuda', dtype=torch.bfloat16):
-                loss = model(**tensors(row)).loss
+                loss = model(**tensors(row), use_cache=False).loss
             if not torch.isfinite(loss):
                 raise FloatingPointError('Nonfinite validation loss')
             loss_sum += loss.item() * count
@@ -146,7 +146,7 @@ def main():
             for row in group:
                 count = sum(x != -100 for x in row['labels'][1:])
                 with torch.autocast('cuda', dtype=torch.bfloat16):
-                    loss = model(**tensors(row)).loss
+                    loss = model(**tensors(row), use_cache=False).loss
                 if not torch.isfinite(loss):
                     raise FloatingPointError('Nonfinite training loss')
                 (loss * count / n_tokens).backward()

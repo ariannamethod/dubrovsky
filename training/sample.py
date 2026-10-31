@@ -50,6 +50,7 @@ def main():
     p.add_argument('--seeds', type=int, nargs='+', default=[42, 137])
     p.add_argument('--limit', type=int, default=len(PROBES))
     p.add_argument('--prompts', type=Path, help='JSONL with language and question fields')
+    p.add_argument('--system', default=SYSTEM)
     args = p.parse_args()
     probes = PROBES
     if args.prompts:
@@ -71,7 +72,7 @@ def main():
             for seed in args.seeds:
                 torch.manual_seed(seed)
                 prompt = tokenizer.apply_chat_template(
-                    [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': question}],
+                    [{'role': 'system', 'content': args.system}, {'role': 'user', 'content': question}],
                     tokenize=True, add_generation_prompt=True, enable_thinking=False, return_dict=False)
                 ids = torch.tensor([prompt], device='cuda')
                 start = time.monotonic()
@@ -81,7 +82,7 @@ def main():
                     pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
                     use_cache=True, eos_token_id=eos)[0, len(prompt):].tolist()
                 text = tokenizer.decode(result, skip_special_tokens=True)
-                row = dict(model=args.model, revision=args.revision, system=SYSTEM,
+                row = dict(model=args.model, revision=args.revision, system=args.system,
                     language=language, question=question, seed=seed, text=text,
                     token_ids=result, eos_token_ids=eos, eos_reached=bool(result and result[-1] in eos),
                     elapsed_seconds=time.monotonic()-start,

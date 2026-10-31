@@ -36,6 +36,8 @@ def main():
     p.add_argument('--lr', type=float, default=5e-7)
     p.add_argument('--beta', type=float, default=0.1)
     p.add_argument('--accumulation', type=int, default=8)
+    p.add_argument('--chosen-nll-weight', type=float, default=0.0,
+                   help='Optional preferred-answer NLL anchor (RPO-style; zero is standard DPO)')
     args = p.parse_args()
     if args.output.exists():
         raise ValueError('Use a fresh DPO output directory')
@@ -64,7 +66,7 @@ def main():
         inputs = {k: torch.tensor([v], device='cuda') for k, v in row.items()}
         count = sum(t != -100 for t in row['labels'][1:])
         with torch.autocast('cuda', dtype=torch.bfloat16):
-            loss = model(**inputs).loss
+            loss = model(**inputs, use_cache=False).loss
         return -loss * count
     model.eval()
     with torch.no_grad():
@@ -88,20 +90,23 @@ def main():
         for start in range(0, len(indices), args.accumulation):
             group = indices[start:start + args.accumulation]
             optimizer.zero_grad(set_to_none=True)
-            total_loss, margins = 0.0, []
+            total_loss, margins, chosen_nlls = 0.0, [], []
             for i in group:
                 chosen, rejected = encoded[i]
                 c, r = logp(chosen), logp(rejected)
                 margin = args.beta * ((c - r) - (reference[i][0] - reference[i][1]))
-                loss = -F.logsigmoid(margin)
+                chosen_nll = -c / sum(t != -100 for t in chosen['labels'][1:])
+                loss = -F.logsigmoid(margin) + args.chosen_nll_weight * chosen_nll
                 if not torch.isfinite(loss):
                     raise FloatingPointError('Nonfinite DPO loss')
                 (loss / len(group)).backward()
                 total_loss += loss.item() / len(group); margins.append(margin.item())
+                chosen_nlls.append(chosen_nll.item())
             norm = torch.nn.utils.clip_grad_norm_(params, 1.0, error_if_nonfinite=True)
             optimizer.step(); step += 1
             record = dict(step=step, epoch=epoch+1, loss=total_loss,
-                          mean_reward_margin=sum(margins)/len(margins), grad_norm=norm.item(),
+                          mean_reward_margin=sum(margins)/len(margins),
+                          chosen_nll=sum(chosen_nlls)/len(chosen_nlls), grad_norm=norm.item(),
                           elapsed_seconds=time.monotonic()-started)
             with (args.output / 'metrics.jsonl').open('a') as f:
                 f.write(json.dumps(record)+'\n')
