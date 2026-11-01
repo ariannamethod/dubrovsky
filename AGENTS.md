@@ -18,6 +18,10 @@ This repository is **subordinate to the [Arianna Method Manifesto](ARIANNA_METHO
   Training may use PyTorch; the target inference runtime is NoTorch.
 - Disable reasoning for Dubrovsky's new generation and training path. Preserve
   the model's actual chat template, tokenizer, end tokens, and VLM structure.
+- Freeze input token embeddings and the tied output head during SFT and DPO;
+  verify their byte-level integrity before and after optimization. Freeze the
+  visual encoder during the text-only stage. Evaluate language retention from
+  generations, including Russian and Hebrew.
 - Start with the authored English corpus. Evaluate other languages from actual
   generations before adding language-polishing data.
 - Evaluate character, associative response to the prompt, diversity, repetition,
