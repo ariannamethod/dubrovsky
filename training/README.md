@@ -318,3 +318,12 @@ closure candidate with new reviewed Russian dialogues and five-language replay.
 Each epoch is saved and compared on fresh scenes, ownership recall after topic
 changes, literal grammar, and native thinking closure. Private data, raw
 generations and weight backups remain in the Hugging Face repositories.
+
+### Russian and Hebrew literary focus
+
+[The Russian–Hebrew continuation](RU_HE_FOCUS.md) adds reviewed GPT-generated
+scenes, varied Russian registers and repairs conditioned on actual student
+histories. It retains all 228 English rows from the selected stage-7 mixture
+and a smaller French/German/Spanish replay slice. The report separates target
+token shares from row counts and compares epoch exports on fresh six-language
+prompts, RU/HE/EN conversations, native thinking closure and photographs.
