@@ -10,6 +10,50 @@ from types import SimpleNamespace
 
 
 class CorpusTests(unittest.TestCase):
+    def test_empty_thinking_supervision_preserves_text_and_generation_prefix(self):
+        class Tokenizer:
+            transition = '\n</think>\n\n'
+            def apply_chat_template(self, messages, **kwargs):
+                prompt = '<user>Q<assistant><think>\n'
+                if kwargs['add_generation_prompt']:
+                    text = prompt if kwargs['enable_thinking'] else prompt + self.transition
+                else:
+                    text = prompt + self.transition + messages[-1]['content'] + '<end>'
+                return self.encode(text) if kwargs.get('tokenize',True) else text
+            def encode(self, text, **kwargs):
+                ids = []
+                while text:
+                    if text.startswith('\n\n'):
+                        ids.append(256); text=text[2:]
+                    else:
+                        ids.append(ord(text[0])); text=text[1:]
+                return ids
+            def decode(self, ids, **kwargs):
+                return ''.join('\n\n' if x==256 else chr(x)for x in ids)
+        row = dict(id='closure', question='Q', answer='The moon resigned.')
+        t = Tokenizer()
+        closed = encode(t, row, 1024)
+        taught = encode(t, row, 1024, supervise_empty_thinking=True)
+        self.assertNotEqual(closed['input_ids'], taught['input_ids'])
+        self.assertEqual(t.decode(closed['input_ids']),t.decode(taught['input_ids']))
+        prefix = t.apply_chat_template([],add_generation_prompt=True,enable_thinking=True)
+        self.assertEqual(taught['input_ids'][:len(prefix)],prefix)
+        self.assertEqual(taught['labels'][:len(prefix)],[-100]*len(prefix))
+        self.assertEqual(t.decode([x for x in taught['labels'] if x != -100]),
+                         '\n</think>\n\nThe moon resigned.<end>')
+        self.assertEqual(t.decode([x for x in closed['labels'] if x != -100]),
+                         'The moon resigned.<end>')
+        closure = encode(t,row,1024,supervise_empty_thinking=True,thinking_closure_only=True)
+        self.assertEqual(t.decode([x for x in closure['labels']if x!=-100]),'\n</think>\n\n')
+        self.assertNotIn(row['answer'],t.decode(closure['input_ids']))
+        with self.assertRaisesRegex(ValueError,'requires'):
+            encode(t,row,1024,thinking_closure_only=True)
+        with self.assertRaisesRegex(ValueError,'no silent truncation'):
+            encode(t,row,len(closed['input_ids']),supervise_empty_thinking=True)
+        t.transition = 'A hidden argument.</think>\n\n'
+        with self.assertRaisesRegex(ValueError, 'empty native thinking'):
+            encode(t, row, 1024, supervise_empty_thinking=True)
+
     def test_conversation_copy_diagnostic_compares_previous_answers_only(self):
         old='The train is gone forever.'
         messages=[{'role':'user','content':'A new cabbage sings softly.'},

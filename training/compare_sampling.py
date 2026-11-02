@@ -24,7 +24,8 @@ def validate_messages(messages):
         raise ValueError('History must end with user')
     for i, message in enumerate(messages):
         role = 'system' if i == 0 else ('user' if i % 2 else 'assistant')
-        if message.get('role') != role or not isinstance(message.get('content'), str) or not message['content'].strip():
+        if (message.get('role') != role or not isinstance(message.get('content'), str)
+                or (role != 'assistant' and not message['content'].strip())):
             raise ValueError('Expected alternating text messages ending with user')
     return messages
 
@@ -121,6 +122,7 @@ def main():
                                 min_p=0.0, repetition_penalty=1.0), seed=seed, turn_seed=turn_seed,
                             turn=turn, prompt_tokens=len(prompt), text=text, token_ids=generated,
                             eos_reached=bool(generated and generated[-1] in eos),
+                            empty_answer=not text.strip(),
                             elapsed_seconds=time.monotonic()-started,
                             diagnostics=conversation_diagnostics(text, messages),
                             messages=messages + [dict(role='assistant', content=text)])

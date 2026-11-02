@@ -32,13 +32,49 @@ python -m unittest discover -s training -p 'test_*.py'
 ```
 
 The pinned tokenizer yields 71,917 supervised tokens over the 486 unique pairs;
-the longest complete example is 485 tokens. Each training example uses the
+the longest complete example is 485 tokens. By default, each training example uses the
 model's chat template with `enable_thinking=False`. Generation stops at either
 the model's end-of-text token or the tokenizer's end-of-turn token. The prompt, including the
 empty thinking prefix, is masked; the answer and its end marker are supervised.
 Template-prefix mismatch and excessive sequence length are errors, not silent
 truncations. Transformers 5.22.1 requires explicit `return_dict=False` for the
 token-list path used here.
+
+`enable_thinking=False` supplies a closed empty thinking prefix at inference.
+The original answer-only SFT masks that prefix, so it supplies no direct loss
+for choosing to close an opened thinking block. The optional SFT flag
+`--supervise-empty-thinking` trains the native empty closure and the answer
+from the open thinking prefix. It changes language-body weights; the architecture,
+tokenizer and frozen matrices stay intact. Validation remains answer-only under
+the closed prefix, preserving the previous loss definition.
+
+The open prefix ends in one newline, while the closed native template contains
+two consecutive newlines. Qwen's BPE merges those two newlines. Training therefore
+tokenizes the continuation at the actual open-prefix generation boundary and
+checks exact rendered-text equality, rather than assuming the two token sequences
+have a shared prefix. History and the open prompt remain masked.
+
+`thinking_probe.py` compares both prefixes on identical questions, configurations
+and seeds. It retains raw special tokens and reports the position of `</think>`,
+text before it, the final answer and EOS/cutoff separately. An EOS without a
+thinking closure is recorded as an unclosed block. Measure this learned behavior
+on held-out requests, including explicit requests to reason, before selecting
+a candidate. Runtime generation continues to default to disabled thinking.
+
+Add `--thinking-closure-only` to isolate that transition: the current answer is
+removed from the training sequence and only the empty closure receives loss.
+Earlier dialogue turns remain context. Use a separate run from the same selected
+parent when comparing this control with joint language/answer training.
+
+```sh
+python training/sft.py --model /path/to/selected-candidate \
+  --data /path/to/reviewed-mixture --output .work/empty-thinking-sft \
+  --epochs 1 --lr 1e-6 --supervise-empty-thinking --answer-logits-only
+
+python training/thinking_probe.py --model /path/to/candidate \
+  --cases /path/to/fixed-cases.json --configurations /path/to/settings.json \
+  --seeds 42 137 --output .work/thinking-comparison.jsonl
+```
 
 ## Run
 

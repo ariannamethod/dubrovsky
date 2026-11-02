@@ -43,7 +43,9 @@ def chat_eos(model, tokenizer):
     return sorted(set(eos))
 
 
-def encode(tokenizer, row, max_length):
+def encode(tokenizer, row, max_length, supervise_empty_thinking=False, thinking_closure_only=False):
+    if thinking_closure_only and not supervise_empty_thinking:
+        raise ValueError('Closure-only training requires empty-thinking supervision')
     messages = [{'role': 'system', 'content': SYSTEM}]
     history = row.get('history', [])
     if not isinstance(history, list) or len(history) % 2:
@@ -63,6 +65,30 @@ def encode(tokenizer, row, max_length):
         tokenize=True, add_generation_prompt=False, enable_thinking=False, return_dict=False)
     if complete[:len(prefix)] != prefix:
         raise ValueError('Chat template does not preserve the nonthinking prefix')
+    if supervise_empty_thinking:
+        opened = tokenizer.apply_chat_template(messages, tokenize=True,
+            add_generation_prompt=True, enable_thinking=True, return_dict=False)
+        opened_text = tokenizer.apply_chat_template(messages, tokenize=False,
+            add_generation_prompt=True, enable_thinking=True)
+        closed_text = tokenizer.apply_chat_template(messages, tokenize=False,
+            add_generation_prompt=True, enable_thinking=False)
+        full_text = tokenizer.apply_chat_template(
+            messages + [{'role': 'assistant', 'content': row['answer'], 'reasoning_content': ''}],
+            tokenize=False, add_generation_prompt=False, enable_thinking=False)
+        if not closed_text.startswith(opened_text) or not full_text.startswith(closed_text):
+            raise ValueError('Native thinking templates do not share a text prefix')
+        transition = closed_text[len(opened_text):]
+        if transition.strip() != '</think>':
+            raise ValueError('Expected an empty native thinking transition')
+        # BPE merges the closed template's two newlines. Generation starts after
+        # the open template's single newline, so tokenize the continuation at
+        # that actual boundary instead of slicing the closed template's IDs.
+        target_text = closed_text if thinking_closure_only else full_text
+        tail = tokenizer.encode(target_text[len(opened_text):], add_special_tokens=False)
+        complete = opened + tail
+        if tokenizer.decode(complete, skip_special_tokens=False) != target_text:
+            raise ValueError('Open-prefix training changed native rendered text')
+        prefix = opened
     if len(complete) > max_length:
         raise ValueError(f"Example {row['id']} needs {len(complete)} tokens; no silent truncation")
     labels = [-100] * len(prefix) + complete[len(prefix):]
@@ -108,9 +134,15 @@ def main():
     p.add_argument('--save-each-epoch', action='store_true')
     p.add_argument('--answer-logits-only', action='store_true',
                    help='Keep full attention history but project only supervised answer positions plus their predecessor')
+    p.add_argument('--supervise-empty-thinking', action='store_true',
+                   help='Also train the native immediate </think> transition; keep validation answer-only')
+    p.add_argument('--thinking-closure-only', action='store_true',
+                   help='Train only that empty transition; current answers are excluded from the training sequence')
     args = p.parse_args()
     if args.epochs < 1 or args.accumulation < 1:
         raise ValueError('Epochs and accumulation must be positive')
+    if args.thinking_closure_only and not args.supervise_empty_thinking:
+        raise ValueError('--thinking-closure-only requires --supervise-empty-thinking')
     if not Path(args.model).is_dir() and not args.revision:
         raise ValueError('Pin a revision when loading a remote model')
     if not torch.cuda.is_available():
@@ -125,7 +157,9 @@ def main():
     def read(name):
         result = []
         for row in read_rows(args.data / name):
-            result.append(dict(encode(tokenizer, row, args.max_length),
+            result.append(dict(encode(tokenizer, row, args.max_length,
+                               supervise_empty_thinking=args.supervise_empty_thinking and name == 'train.jsonl',
+                               thinking_closure_only=args.thinking_closure_only and name == 'train.jsonl'),
                                language=row.get('language', 'en')))
         if not result:
             raise ValueError('Empty split: '+name)
@@ -151,6 +185,9 @@ def main():
            'total_steps': total_steps, 'parameter_dtype': 'float32', 'autocast': 'bfloat16',
            'visual_encoder': 'frozen', 'language_embeddings': 'frozen', 'output_head': 'frozen',
            'tied_embeddings': tied, 'frozen_hashes_before': frozen_hashes,
+           'thinking_transition': 'supervised empty closure' if args.supervise_empty_thinking else 'masked closed prefix',
+           'training_supervision': 'empty closure only' if args.thinking_closure_only else 'answer, turn end and optional empty closure',
+           'validation_supervision': 'answer and turn end only; thinking prefix closed and masked',
            'data_manifest': json.loads((args.data / 'manifest.json').read_text())}
     (args.output / 'run.json').write_text(json.dumps(run, default=str, indent=2))
     print(json.dumps(run, default=str), flush=True)

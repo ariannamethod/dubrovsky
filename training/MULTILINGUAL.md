@@ -1,5 +1,91 @@
 # Multilingual Dubrovsky — data and experiments, 2026-11-02
 
+## Russian focus and empty-thinking supervision
+
+A new joint pilot starts from the selected stage-7 epoch-1 checkpoint, rather
+than the rejected stage-8 candidate. It combines 333 English and 243 Russian
+records: 72 newly authored Russian answers (40 QA and two 16-turn conversations),
+105 additional unchanged English training records and previous replay. English
+accounts for 28,437 of 46,608 supervised target tokens. The extra original replay
+was filtered for low repetition and read by Astra; the new Russian material was
+authored and reviewed by Astra. Private files preserve the selection, original
+wording, source hashes and the author's review. There was no external API call.
+
+The native open thinking prefix ends with one newline; the closed prefix has
+two, which Qwen's BPE merges. The implementation preserves the exact rendered
+text while tokenizing the continuation at the actual generation boundary.
+It adds three supervised transition tokens before each answer. All 576 training
+and 79 validation rows passed the native-template check; the longest training
+sequence is 1,501 tokens. Validation still masks the closed prefix and measures
+only the answer and its end marker.
+
+One epoch presents 576 examples and makes 36 optimizer updates at peak learning
+rate `1e-6`, with accumulation 16. Training, validation and export take 261.8 s;
+peak allocated GPU memory is 11.234 GiB. The frozen embedding/head hashes and all
+153 exported vision tensors remain identical to the parent.
+
+| Answer-only validation | Stage 7 parent | Joint pilot |
+|---|---:|---:|
+| English | 3.392821 | 3.132857 |
+| Russian | 3.711682 | 3.543469 |
+| Hebrew | 3.235427 | 3.110659 |
+| French | 3.086627 | 3.002139 |
+| German | 3.399012 | 3.319265 |
+| Spanish | 3.142419 | 3.055881 |
+
+The fixed open/closed-thinking comparison uses four new questions and two
+seeds, including explicit requests for step-by-step reasoning. Before this
+pilot, all eight open-prefix generations put character text inside the unclosed
+thinking block and then emitted EOS. After the pilot, all eight immediately
+generate the empty native closure, produce a nonempty final answer and reach
+EOS. A further 32 open-prefix cases cover all six languages and fixed histories
+ending at turns 10 and 20: all 32 also close immediately, answer and reach EOS.
+Both prefixes and raw special tokens are retained in the private evidence.
+
+The joint pilot is **not promoted**. All six validation losses improve, but
+Russian generations still have severe agreement and reference errors. The
+20-turn Russian conversation reintroduces the swimming instructor into a later
+ballet scene without being asked and misremembers the opening drawing. English
+fresh answers have some improvements, while the long shadow callback and cinema
+ending are weaker than the selected parent. The other four languages remain
+impaired. English literal image descriptions retain the three central subjects;
+creative multilingual grounding remains unreliable. One fresh Russian answer
+hits the 192-token cap; no exact repetition loop is observed in that answer.
+
+This pilot records 233 new generations and reuses 49 earlier stage-7 baseline
+records with matching questions, sampling and seeds. Selection uses the literal
+outputs; the new Russian/English fresh probes have no training answers. Reused
+English dialogue, other-language questions and image probes remain comparison
+sets. The successful transition behavior is evaluated separately in a
+closure-only control from the same stage-7 parent.
+
+The closure-only control also presents 576 examples and makes 36 updates at
+`1e-6`, but supervises just three transition tokens per example. It takes
+227.24 s including validation/export, with peak allocation 10.345 GiB. Current
+answers are absent from its training sequences; earlier turns remain context.
+The frozen language matrices and all 153 exported vision tensors are unchanged.
+Overall answer validation moves from 3.360521 to 3.328770.
+
+This control is **also rejected**. All 40 open-prefix cases close immediately,
+but one Spanish response ends with no final answer and a different Russian
+response reaches the token cap. In 133 closed-prefix generations, four contain
+extra thinking-end markers and one is a whitespace-only answer. The latter
+occurs at Russian dialogue turn 8 and originally stops the probe on turn 9.
+The probe now retains empty assistant history, flags `empty_answer`, and still
+requires nonempty user/system text. Re-running the dialogue reproduces all
+eight original token sequences exactly and completes the remaining turns.
+The failed run and its partial output remain in the private evidence.
+
+The control has 173 canonical generation records plus eight preserved duplicate
+records from the interrupted dialogue. Together the two trials produce 406 new
+canonical records and reuse 49 baseline records. The joint objective's clean
+closure behavior and the control's extra tags/empty answers guide the next
+recipe: retain answer supervision when teaching the transition. The selected
+primary remains stage 7; neither new candidate replaces it. Both candidates
+remain on the stopped persistent pod, and the new sources, corrections, literal
+outputs, failure/recovery evidence and reviews are backed up in the private HF
+dataset. The four Dubrovsky GPU pods are stopped.
+
 The creator traces Dubrovsky's beginnings to the voice-input insertion
 «Спасибо за субтитры Алексею Дубровскому» and Russian dialogues with GPT-4o.
 Their wordplay includes «дубровость», ALEX-DUB-RAW-SKY and «Чёрная Дура».
