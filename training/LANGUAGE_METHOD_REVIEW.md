@@ -6,6 +6,10 @@ checks the training implementation and exposure against primary sources and
 specifies the next controlled intervention. No new optimizer run, DPO run or
 weight selection is part of this review.
 
+The subsequent [stage-16 report](GRAMMAR_COMPARISON.md) records the executed
+matched comparison and its remaining grammar and conversation failures. The
+prospective statements below describe the plan at the time of this review.
+
 ## What the existing experiments establish
 
 The [lineage comparison](LINEAGE_AUDIT.md) measured language switching after
