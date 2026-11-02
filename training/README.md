@@ -310,3 +310,11 @@ the actual record IDs and languages at every optimizer step. Optional
 development references in `validation_by_group`. They do not affect supervision
 or the existing aggregate/per-language loss. Add `--supervise-empty-thinking`
 only for the explicitly matched closure arm.
+
+### Russian-priority continuation
+
+[The Russian continuation](RUSSIAN_CONTINUATION.md) trains from the stage-12
+closure candidate with new reviewed Russian dialogues and five-language replay.
+Each epoch is saved and compared on fresh scenes, ownership recall after topic
+changes, literal grammar, and native thinking closure. Private data, raw
+generations and weight backups remain in the Hugging Face repositories.
