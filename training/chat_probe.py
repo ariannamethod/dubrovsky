@@ -9,8 +9,8 @@ from sft import SYSTEM, chat_eos
 from sample import diagnostics, grams
 
 
-def conversation_diagnostics(text, messages):
-    measured=diagnostics(text,set())
+def conversation_diagnostics(text, messages, raw_text=None):
+    measured=diagnostics(text,set(),raw_text=raw_text)
     measured['training_8gram_fraction']=None  # No training corpus is loaded here.
     previous={g for message in messages if message['role']=='assistant'
               for g in grams(message['content'],4)}
@@ -60,9 +60,10 @@ def main():
             **generation_kwargs(args.preset,len(prompt)),max_new_tokens=args.max_new_tokens,
             eos_token_id=eos,pad_token_id=tokenizer.pad_token_id,use_cache=not args.no_cache)[0,len(prompt):].tolist()
     text=tokenizer.decode(ids,skip_special_tokens=True)
-    measured=conversation_diagnostics(text,messages)
+    raw_text=tokenizer.decode(ids,skip_special_tokens=False)
+    measured=conversation_diagnostics(text,messages,raw_text=raw_text)
     record=dict(model=args.model,partner=source.get('partner','unspecified'),
-        messages=messages+[{'role':'assistant','content':text}],text=text,token_ids=ids,
+        messages=messages+[{'role':'assistant','content':text}],text=text,raw_text=raw_text,token_ids=ids,
         prompt_tokens=len(prompt),seed=args.seed,preset=args.preset,sampling=PRESETS[args.preset],
         use_cache=not args.no_cache,
         eos_reached=bool(ids and ids[-1] in eos),elapsed_seconds=time.monotonic()-started,

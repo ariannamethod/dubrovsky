@@ -1,5 +1,48 @@
 # Multilingual Dubrovsky — data and experiments, 2026-11-02
 
+## Targeted response repair
+
+A two-epoch continuation from stage 7 uses 399 records: EN 236, RU 123 and
+ten each in FR/DE/ES/HE. Forty new Astra-authored literary repairs preserve the
+measured original reply, question, raw history and source hash. Nineteen paired
+variants use corrected prior Russian turns. Eight reviewed stage-7 English
+replies supply additional replay. The former evaluation cases used for these
+repairs/replay are retired from held-out selection. New probes contain no
+training answers. All new data and evidence remain in the private HF dataset.
+
+The native closed thinking prefix is masked; supervision covers the answer
+and turn end. The 399 training and 79 validation rows passed template checks,
+with maximum lengths 2,199 and 485. Two epochs present 798 examples and make
+50 optimizer updates at peak learning rate `1e-6`. An L40S reruns the parent
+baseline before training, keeping hardware and software fixed for comparison.
+Training, validation and both exports take 265.13 seconds. Frozen embeddings,
+head and all 153 exported vision tensors remain unchanged.
+
+| Answer-only validation | Stage 7 parent | Epoch 1 | Epoch 2 |
+|---|---:|---:|---:|
+| English | 3.394646 | 3.164819 | 3.302286 |
+| Russian | 3.706666 | 3.438499 | 3.426181 |
+| Hebrew | 3.240737 | 2.997635 | 2.985844 |
+| French | 3.089296 | 2.953838 | 2.966185 |
+| German | 3.398541 | 3.244949 | 3.258305 |
+| Spanish | 3.138709 | 3.005940 | 3.023536 |
+
+Each of the three models receives 20 fresh questions with two seeds and one
+new 20-turn conversation in each of RU and EN: 240 new generations in total.
+All reach EOS with nonempty answers and no raw thinking markers. Both new
+epochs are **rejected**: Russian grammar remains impaired, other-language
+answers remain unreliable, and scene leakage appears in English. The epoch-1
+Russian conversation nearly repeats its opening at turn 4; 90.9% of that
+reply's word 4-grams occur in its prior replies. Epoch 2 still repeats parts
+of earlier dialogue. Stage 7 also fails the new English name callback, so the
+earlier favorable conversation did not establish broad retention.
+
+The primary remains stage 7. Two new checkpoints remain on the stopped pod.
+The [method audit](METHOD_AUDIT.md) records these selection limits, the DPO
+history omission now fixed in code, and a diagnostic hypothesis checked against
+the actual tokenizer. Forty contextual preferences are prepared and checked;
+they have not undergone a new DPO optimizer run.
+
 ## Russian focus and empty-thinking supervision
 
 A new joint pilot starts from the selected stage-7 epoch-1 checkpoint, rather

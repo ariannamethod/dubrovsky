@@ -117,14 +117,15 @@ def main():
                             max_new_tokens=args.max_new_tokens, eos_token_id=eos,
                             pad_token_id=tokenizer.pad_token_id, use_cache=True)[0, len(prompt):].tolist()
                         text = tokenizer.decode(generated, skip_special_tokens=True)
+                        raw_text = tokenizer.decode(generated, skip_special_tokens=False)
                         row = dict(**provenance, case_id=case['id'], language=case['language'],
                             configuration_id=configuration['id'], sampling=dict(**configuration['sampling'],
                                 min_p=0.0, repetition_penalty=1.0), seed=seed, turn_seed=turn_seed,
-                            turn=turn, prompt_tokens=len(prompt), text=text, token_ids=generated,
+                            turn=turn, prompt_tokens=len(prompt), text=text, raw_text=raw_text, token_ids=generated,
                             eos_reached=bool(generated and generated[-1] in eos),
                             empty_answer=not text.strip(),
                             elapsed_seconds=time.monotonic()-started,
-                            diagnostics=conversation_diagnostics(text, messages),
+                            diagnostics=conversation_diagnostics(text, messages, raw_text=raw_text),
                             messages=messages + [dict(role='assistant', content=text)])
                         out.write(json.dumps(row, ensure_ascii=False) + '\n'); out.flush()
                         messages = row['messages']
