@@ -255,3 +255,45 @@ into new scenes; by turn 12, the ending again returned to the train and Wednesda
 All turns stopped normally. N-gram repetition alone missed this semantic
 stagnation. Conversation probes now record training-copy fraction as unavailable
 when no corpus was loaded, rather than reporting a zero measurement.
+
+The corrected repair run completed two epochs: 330 example presentations,
+22 optimizer updates, 81.58 seconds including exports, peak allocation 13.024 GiB.
+Maximum training length was 1,182 tokens; frozen embedding/head hashes match.
+Validation loss moved from 3.52703 to 3.51482. Its fixed 14 probes all terminated.
+Russian errors and weak Hebrew remain. A temporary private backup of epoch 2
+was saved before further evaluation.
+
+The new conversation starts with a coat renting a room inside a mountain, then
+switches to a piano at a dentist and an onion at a peace conference. Turn 3
+developed the piano scene, but turn 4 recalled the mountain and turn 5 brought
+the dentist and piano into the onion scene. The targeted repair has not resolved
+long-history topic fixation. Native tokenizer comparison gives identical
+559-token inference/training prefixes for the same saved history, excluding a
+chat-template mismatch in that case.
+
+The repaired candidate was checked in a new seven-turn conversation; the
+pre-repair candidate completed twelve turns. These are different conversations.
+The first repaired prompt was also run unchanged on the pre-repair model, with
+the same seed and sampling preset. Full raw histories remain in the private
+experiment archive, alongside data, provenance and literal generation records.
+The next training-data requirement is longer conversations with repeated topic
+switches and selective callbacks; this short repair is retained as an experiment.
+
+## Long-conversation curriculum
+
+Four new English demonstrations contain twelve turns each (48 total), with
+scene changes at turns 4, 7 and 11 and selective callbacks at turn 10. Russian
+and Hebrew literary adaptations are being prepared with those boundaries. These are newly
+authored examples; the prior measured conversations remain recorded separately.
+`build_dialogue_mixture.py` selects deterministic replay by language and excludes
+all dialogue IDs, including first turns with empty history, from the replay
+pool before combining the compiled dialogues. It checks IDs and split overlap.
+
+`sft.py --answer-logits-only` keeps the complete attention history and projects
+only the current answer plus its preceding prediction position through the
+vocabulary head. The flag defaults off. A native longest-English-example GPU
+check (820 context tokens, 33 supervised tokens) compared the full and reduced
+projection losses: 3.858129978 and 3.858131170, absolute difference 1.19e-6.
+Peak allocation was 5.087 versus 3.681 GiB. `check_loss_parity.py` preserves the
+comparison output. A regression test checks that the first answer token remains
+supervised. Fifteen local tests pass.

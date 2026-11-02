@@ -71,6 +71,14 @@ def encode(tokenizer, row, max_length):
     return {'input_ids': complete, 'labels': labels}
 
 
+def supervision_tail(labels):
+    first = next((i for i, token in enumerate(labels) if token != -100), None)
+    if first is None:
+        raise ValueError('No supervised tokens')
+    keep = min(len(labels), len(labels) - first + 1)
+    return labels[-keep:], keep
+
+
 def read_rows(path):
     rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     seen = set()
@@ -98,6 +106,8 @@ def main():
     p.add_argument('--max-length', type=int, default=1024)
     p.add_argument('--max-steps', type=int, default=0)
     p.add_argument('--save-each-epoch', action='store_true')
+    p.add_argument('--answer-logits-only', action='store_true',
+                   help='Keep full attention history but project only supervised answer positions plus their predecessor')
     args = p.parse_args()
     if args.epochs < 1 or args.accumulation < 1:
         raise ValueError('Epochs and accumulation must be positive')
@@ -145,7 +155,12 @@ def main():
     (args.output / 'run.json').write_text(json.dumps(run, default=str, indent=2))
     print(json.dumps(run, default=str), flush=True)
     def tensors(row):
-        return {k: torch.tensor([row[k]], device='cuda') for k in ('input_ids','labels')}
+        values = {k: torch.tensor([row[k]], device='cuda') for k in ('input_ids','labels')}
+        if args.answer_logits_only:
+            labels, keep = supervision_tail(row['labels'])
+            values['labels'] = torch.tensor([labels], device='cuda')
+            values['logits_to_keep'] = keep
+        return values
     def log(row):
         row['elapsed_seconds'] = round(time.monotonic() - started, 2)
         with (args.output / 'metrics.jsonl').open('a') as f:

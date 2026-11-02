@@ -1,13 +1,31 @@
 import unittest
 from prepare_corpus import normalize, parse, split_pairs
-from sft import encode, chat_eos, read_rows
+from sft import encode, chat_eos, read_rows, supervision_tail
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from prepare_dialogues import conversation_rows
+from build_dialogue_mixture import sample_replay
 from types import SimpleNamespace
 
 
 class CorpusTests(unittest.TestCase):
+    def test_language_replay_excludes_even_first_dialogue_turn(self):
+        rows=[dict(id='dialogue-one-01',language='he',history=[]),
+              dict(id='dialogue-one-02',language='he',history=[{'role':'user','content':'Q'}]),
+              dict(id='authored-he',language='he')]
+        self.assertEqual([r['id']for r in sample_replay(rows,{'he':1},42)],['authored-he'])
+        with self.assertRaisesRegex(ValueError,'Insufficient replay'):
+            sample_replay(rows,{'he':2},42)
+
+    def test_answer_projection_keeps_first_answer_prediction(self):
+        labels, keep = supervision_tail([-100, -100, -100, 41, 42, 99])
+        self.assertEqual(labels, [-100, 41, 42, 99])
+        self.assertEqual(keep, 4)
+        self.assertEqual(labels[1:], [41, 42, 99])
+        self.assertEqual(supervision_tail([41,42]), ([41,42],2))
+        with self.assertRaises(ValueError):
+            supervision_tail([-100,-100])
+
     def test_replay_cannot_duplicate_an_existing_dialogue_record(self):
         with TemporaryDirectory() as directory:
             path = Path(directory)/'train.jsonl'
