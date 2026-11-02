@@ -24,18 +24,18 @@ layout; the current Makefile's default Go target refers to an absent
 
 ## Next body
 
-Development is moving toward SFT of
+English SFT and preference training have run on
 [`huihui-ai/Huihui-Qwen3.5-0.8B-abliterated`](https://huggingface.co/huihui-ai/Huihui-Qwen3.5-0.8B-abliterated)
-on Dubrovsky's authored corpus, with reasoning disabled. English comes first;
-other languages will be evaluated from the resulting generations. Training may
-use PyTorch. The target inference runtime is
-[NoTorch](https://github.com/ariannamethod/notorch).
+with reasoning disabled. Current work strengthens Russian, Hebrew and long
+conversations with topic changes. Training uses PyTorch; the target inference
+runtime is [NoTorch](https://github.com/ariannamethod/notorch).
 
 Character, new associations, responsiveness, and freedom from repetitive loops
 guide evaluation. Training loss and conventional factual benchmarks do not
 replace those criteria. The [training workflow](training/README.md) documents
 data preparation, nonthinking SFT, frozen language embeddings and DPO.
-The Qwen3.5 training and runtime work is in progress.
+The [multilingual experiment record](training/MULTILINGUAL.md) tracks literal
+generations, data provenance and remaining work.
 
 ## Contributing
 

@@ -136,3 +136,37 @@ The helper checks tokenizer parity for English, Russian and Hebrew with the
 thinking option absent, false and true, then copies the candidate and records
 weight-file hashes. It performs no upload. Release selection and upload remain
 separate explicit steps; the first English experiments are still candidates.
+
+## Long dialogue continuation
+
+[The multilingual record](MULTILINGUAL.md) documents the current data and runs.
+`prepare_dialogues.py` compiles authored conversations into causal histories;
+only the current assistant answer and end marker receive supervised loss.
+`build_dialogue_mixture.py` combines these rows with deterministic language
+replay and preserves the development split. Duplicate IDs and split overlap
+are rejected. Private training files and literal generations stay outside git.
+
+```sh
+python training/prepare_dialogues.py \
+  --input /path/to/en.json /path/to/ru.json /path/to/he.json \
+  --output .work/compiled-dialogues
+
+python training/build_dialogue_mixture.py \
+  --replay .work/earlier-mixture \
+  --dialogues .work/compiled-dialogues/train.jsonl \
+  --output .work/long-mixture
+
+python training/sft.py --model /path/to/selected-candidate \
+  --data .work/long-mixture --output .work/long-sft \
+  --epochs 3 --lr 2e-6 --max-length 3072 \
+  --save-each-epoch --answer-logits-only
+```
+
+`--answer-logits-only` retains the full attention history while reducing
+vocabulary projection to the answer and its preceding prediction position.
+`check_loss_parity.py` compares its loss and peak memory with the full projection
+on a native encoded example. The flag defaults off. `chat_probe.py` preserves
+full partner histories and reports repetition within and between answers.
+Compare saved epochs using fresh conversations, selective callbacks, new themes
+and language quality. The final character and runtime selection follows those
+conversations.
