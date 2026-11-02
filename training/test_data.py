@@ -1,11 +1,22 @@
 import unittest
 from prepare_corpus import normalize, parse, split_pairs
-from sft import encode, chat_eos
+from sft import encode, chat_eos, read_rows
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from prepare_dialogues import conversation_rows
 from types import SimpleNamespace
 
 
 class CorpusTests(unittest.TestCase):
+    def test_replay_cannot_duplicate_an_existing_dialogue_record(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory)/'train.jsonl'
+            path.write_text('{"id":"dialogue-1"}\n{"id":"replay-2"}\n{"id":"dialogue-1"}\n')
+            with self.assertRaisesRegex(ValueError, 'Duplicate training record ID'):
+                read_rows(path)
+            path.write_text('{"id":"dialogue-1"}\n{"id":"replay-2"}\n')
+            self.assertEqual(len(read_rows(path)), 2)
+
     def test_dialogue_rows_never_include_current_or_future_answers_in_history(self):
         rows = conversation_rows(dict(id='clock', language='en',
             turns=[['Q1','A1'], ['Q2','A2'], ['Q3','A3']]))

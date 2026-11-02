@@ -71,6 +71,18 @@ def encode(tokenizer, row, max_length):
     return {'input_ids': complete, 'labels': labels}
 
 
+def read_rows(path):
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    seen = set()
+    for row in rows:
+        if row['id'] in seen:
+            raise ValueError(f"Duplicate training record ID in {path}: {row['id']}")
+        seen.add(row['id'])
+    if not rows:
+        raise ValueError('Empty split: '+str(path))
+    return rows
+
+
 def main():
     import torch
     import transformers
@@ -102,11 +114,9 @@ def main():
     processor = AutoProcessor.from_pretrained(args.model, revision=args.revision)
     def read(name):
         result = []
-        for line in (args.data / name).read_text().splitlines():
-            if line.strip():
-                row = json.loads(line)
-                result.append(dict(encode(tokenizer, row, args.max_length),
-                                   language=row.get('language', 'en')))
+        for row in read_rows(args.data / name):
+            result.append(dict(encode(tokenizer, row, args.max_length),
+                               language=row.get('language', 'en')))
         if not result:
             raise ValueError('Empty split: '+name)
         return result

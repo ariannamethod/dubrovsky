@@ -48,11 +48,13 @@ def main():
             **generation_kwargs(args.preset,len(prompt)),max_new_tokens=args.max_new_tokens,
             eos_token_id=eos,pad_token_id=tokenizer.pad_token_id,use_cache=True)[0,len(prompt):].tolist()
     text=tokenizer.decode(ids,skip_special_tokens=True)
+    measured=diagnostics(text,set())
+    measured['training_8gram_fraction']=None  # No training corpus is loaded by this probe.
     record=dict(model=args.model,partner=source.get('partner','unspecified'),
         messages=messages+[{'role':'assistant','content':text}],text=text,token_ids=ids,
         prompt_tokens=len(prompt),seed=args.seed,preset=args.preset,sampling=PRESETS[args.preset],
         eos_reached=bool(ids and ids[-1] in eos),elapsed_seconds=time.monotonic()-started,
-        diagnostics=diagnostics(text,set()))
+        diagnostics=measured)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(record,ensure_ascii=False,indent=2)+'\n')
     print(json.dumps(record,ensure_ascii=False),flush=True)

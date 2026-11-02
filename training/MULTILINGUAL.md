@@ -116,12 +116,13 @@ generated tokens only; repetition penalty is a different operation.
 English, Russian and Hebrew, recording image hashes, token IDs and sampling
 settings. Evaluation inputs were extracted from the scikit-image 0.26.0 wheel:
 `astronaut.png`, `chelsea.png`, `coffee.png`. They stay outside git. This new
-vision entry point has not yet run against a model.
+vision entry point ran against the pinned base and the mixed-language DPO
+candidate; the result is recorded below.
 
 After training, run 12–20-turn conversations with a GPT partner that follows
 specific details in Dubrovsky's answers, complicates the scene and recalls
 earlier details. Save full histories and evaluate development, repetition,
-language, identity and continuity. This test has not run yet.
+language, identity and continuity. A preserved-history partner test is underway; its measured failures are recorded below.
 
 ## Compute and continuation
 
@@ -131,12 +132,13 @@ unreachable. It was stopped again without deleting its 30 GB volume. Previous
 candidates were saved there before the earlier stop; their files could not be
 re-read during this resume attempt. The host reported itself unlisted. An A40
 replacement allocation returned a supply constraint; an RTX 4090 replacement
-started successfully. The English stage is being reconstructed from the pinned
-base and cleaned 436-pair training corpus, with every epoch saved separately.
+started successfully. The English stage was reconstructed from the pinned base and cleaned 436-pair
+training corpus, with every epoch saved separately.
 
 Temporary private Hugging Face backups are authorized when useful. Remove them
 after the final selected full and quantized weights are safely published.
-A temporary private English checkpoint backup is now stored in the authorized repository; final release selection remains open.
+Temporary private English epoch-3 and expanded-language epoch-3 backups are
+stored in the authorized repository; final release selection remains open.
 
 The previous SFT had 1,311 single-example forward/backward iterations and 84
 optimizer updates; first/last group training losses were 3.265025 and 1.205874.
@@ -208,3 +210,48 @@ conversation is claimed yet.
 
 Twelve unit tests pass, including preventing current/future-answer leakage into
 conversation history and excluding history tokens from supervised loss.
+
+## Expanded-language results and dialogue repair
+
+The expanded stage completed 90 updates in three epochs (1,428 example
+presentations). All embedding/head hashes match the original frozen tensors.
+Fixed-probe termination was 12/14, 14/14 and 14/14; the separate nine prompts
+terminated 6/9, 8/9 and 9/9. Epoch 3 was retained for conversational evaluation.
+Russian grammar remains uneven; Hebrew still has malformed words and syntax.
+Foreign-script intrusions also occur. English character and scene associations
+transfer, with recurrent possessive phrasing in some prompts.
+
+The first three English conversational turns developed the suitcase/fish/train
+scene. Later turns brought old weekdays and trains into a soap-violin scene and
+a new museum scene, despite partner requests to change subjects. Baseline,
+temperature 1.0, the official text preset and epoch 1 were compared using the
+identical saved seven-turn history; all carried old scene elements forward.
+The partner was Astra in this session, with manually authored responsive turns.
+
+Reapplying the existing 17 preference pairs for four epochs at 2e-6 introduced
+more language mixing and grammatical defects. A one-epoch 5e-7 variant retained
+the lighthouse repetition on a separate prompt. Neither replacement is selected.
+These runs reuse preference-training prompts and do not add independent evidence
+from those prompts. All measured outputs remain preserved.
+
+The targeted repair mixture initially contained one duplicated first dialogue
+turn in its replay slice. The corrected version contains nine new Astra-authored
+answers conditioned on actual failed histories, 45 earlier dialogue turns and
+111 additional language replay rows (165 unique records). The nine correction prompts now belong to training. A short two-epoch
+SFT runs from expanded-language epoch 3, at 1e-6 with max length 1,536. Selection
+uses a new dialogue rather than the corrected training conversations.
+
+The first repair run exhausted its 30 GB volume quota while exporting epoch 2.
+Epoch 1 was exported; the incomplete epoch-2 directory is not a usable candidate.
+Automatic approval rejected removal of temporary checkpoint exports, so no such
+cleanup ran. The volume was expanded to 50 GB instead. The same environment was
+restored after the resize reset and the short run was repeated. A fresh corrected
+165-record run follows the deduplication fix. `sft.py` now rejects duplicate IDs
+before loading model weights; thirteen local tests pass.
+
+The pre-repair English baseline conversation completed twelve partner turns,
+all preserving the complete history. From turn 4 onward, old weekdays intruded
+into new scenes; by turn 12, the ending again returned to the train and Wednesday.
+All turns stopped normally. N-gram repetition alone missed this semantic
+stagnation. Conversation probes now record training-copy fraction as unavailable
+when no corpus was loaded, rather than reporting a zero measurement.
