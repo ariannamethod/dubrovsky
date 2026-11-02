@@ -198,3 +198,19 @@ specify all four settings. Existing result files are never overwritten. Context
 is retained in full; excessive context raises an error instead of truncating.
 The four-gram diagnostics expose lexical copying; read the literal conversation
 to judge semantic continuity, scene changes, grammar and character.
+
+
+### Reproducible multilingual image probes
+
+`vision_sample.py` accepts `--questions questions.json` with a nonempty JSON list
+of `{ "id": "fr-character", "language": "fr", "question": "..." }` objects and
+`--seeds 42 137`. Question IDs must be unique. Without these options it retains
+the original four English/Russian/Hebrew questions and seed 42. Empty image sets
+and unpinned remote models fail before model loading.
+
+Each PNG/question/seed result records its image hash, question-set hash, literal
+answer and tokens, EOS, sampling preset, library versions and nonthinking mode.
+Use the same photographs, question file and seeds on both candidates. Recognition
+of visible objects and the character's invented scene are reviewed separately.
+Do not reuse generated evaluation answers as training targets without explicitly
+changing their role and recording a new holdout split.
