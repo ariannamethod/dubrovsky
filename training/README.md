@@ -119,15 +119,23 @@ selection rationale. A lower loss by itself does not select the final body.
 English is the first target; add language-polishing material in response to the
 measured multilingual outputs.
 
-Only the final selected weights go to the private `ataeff/Dubrovsky` repository.
-Intermediate candidates remain on the training disk.
+Keep the final selected full and quantized weights in the private
+`ataeff/Dubrovsky` repository. Temporary private backups are also authorized
+when needed for recovery; keep them separate from the final release and remove
+them after that release is secure. Other intermediate candidates remain on the
+training disk. Private datasets and their revisions belong in the private HF
+dataset repository, outside git.
+
+The [method audit](METHOD_AUDIT.md) records implementation defects, evaluation
+exposure, and limitations observed during the response-repair continuation.
 
 ## Frozen language interface
 
 The checkpoint ties its language embedding matrix to the output head. Both are
 excluded from the optimizer, and their pre/post-training hashes must match.
-This applies to `sft.py` and `dpo.py`. Training starts from the original Huihui
-revision, not from the earlier interrupted five-step run with trainable embeddings.
+This applies to `sft.py` and `dpo.py`. Initial training started from the pinned
+original Huihui revision, not the earlier interrupted five-step run with
+trainable embeddings. Continuations record their selected parent checkpoint.
 
 English instruction tuning with frozen original embeddings is also used in
 [Jiang et al., EACL 2026, §2.2](https://aclanthology.org/2026.eacl-long.357.pdf).
@@ -136,11 +144,16 @@ does not measure this Dubrovsky recipe. Language retention here is evaluated
 against the same Huihui checkpoint, prompts, seeds and decoding settings.
 
 For DPO, provide reviewed JSONL records containing `question`, `chosen`,
-`rejected`, and `reason`, with both answers responding to the same question:
+`rejected`, and `reason`, with both answers responding to the same question.
+An optional `history` contains complete alternating user/assistant turns.
+Both alternatives receive that same history, which remains masked; only the
+current answer and turn end contribute to their likelihood. `--max-length`
+sets the complete-conversation limit (default 1024); oversized pairs are rejected
+without truncation. Use a larger explicit limit for reviewed long conversations:
 
 ```sh
 python training/dpo.py --model .work/sft/candidate \
-  --preferences .work/preferences.jsonl --output .work/dpo
+  --preferences .work/preferences.jsonl --output .work/dpo --max-length 3072
 ```
 
 The SFT candidate is the fixed reference. Its answer-token log probabilities
@@ -234,6 +247,11 @@ specify all four settings. Existing result files are never overwritten. Context
 is retained in full; excessive context raises an error instead of truncating.
 The four-gram diagnostics expose lexical copying; read the literal conversation
 to judge semantic continuity, scene changes, grammar and character.
+
+Text and image probes store `raw_text` decoded without stripping special tokens,
+alongside readable `text` and token IDs. Thinking-marker checks inspect the raw
+generated continuation, excluding the prompt's intentional empty thinking prefix.
+Word repetition and corpus overlap continue to use readable text.
 
 
 ### Reproducible multilingual image probes

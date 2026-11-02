@@ -31,11 +31,15 @@ def grams(text, n):
     return [tuple(words[i:i+n]) for i in range(len(words) - n + 1)]
 
 
-def diagnostics(text, corpus):
+def diagnostics(text, corpus, raw_text=None):
     four, eight = grams(text, 4), grams(text, 8)
+    # Markers classified as special can disappear with skip_special_tokens=True.
+    # Keep lexical statistics on readable text, but inspect the unstripped output
+    # for protocol leakage. The prompt's intended empty prefix is not output.
+    marker_text = text if raw_text is None else raw_text
     return {'repeated_4gram_fraction': 1 - len(set(four)) / len(four) if four else 0,
             'training_8gram_fraction': sum(g in corpus for g in eight) / len(eight) if eight else 0,
-            'thinking_marker_in_output': '<think>' in text or '</think>' in text}
+            'thinking_marker_in_output': '<think>' in marker_text or '</think>' in marker_text}
 
 
 def main():
@@ -84,14 +88,15 @@ def main():
                     pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
                     use_cache=True, eos_token_id=eos)[0, len(prompt):].tolist()
                 text = tokenizer.decode(result, skip_special_tokens=True)
+                raw_text = tokenizer.decode(result, skip_special_tokens=False)
                 row = dict(model=args.model, revision=args.revision, system=args.system,
-                    language=language, question=question, seed=seed, text=text,
+                    language=language, question=question, seed=seed, text=text, raw_text=raw_text,
                     token_ids=result, eos_token_ids=eos, eos_reached=bool(result and result[-1] in eos),
                     elapsed_seconds=time.monotonic()-start,
                     sampling=dict(preset=args.preset, **PRESETS[args.preset],
                                   min_p=0.0, repetition_penalty=1.0),
                     transformers=transformers.__version__, torch=torch.__version__,
-                    diagnostics=diagnostics(text, corpus))
+                    diagnostics=diagnostics(text, corpus, raw_text=raw_text))
                 f.write(json.dumps(row, ensure_ascii=False) + '\n'); f.flush()
                 print(json.dumps(row, ensure_ascii=False), flush=True)
 

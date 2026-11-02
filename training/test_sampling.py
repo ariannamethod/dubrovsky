@@ -1,9 +1,26 @@
 import unittest
 
 from compare_sampling import validate_inputs, validate_messages
+from chat_probe import conversation_diagnostics
+from sample import diagnostics, grams
 
 
 class SamplingTests(unittest.TestCase):
+    def test_hidden_special_markers_are_detected_without_changing_word_statistics(self):
+        text = 'The moon opened a bakery. The moon opened a bakery.'
+        old = diagnostics(text, set(grams(text, 8)))
+        self.assertFalse(old['thinking_marker_in_output'])
+        for marker in ('<think>', '</think>'):
+            raw = marker + '\n' + text + '<|im_end|>'
+            measured = diagnostics(text, set(grams(text, 8)), raw_text=raw)
+            self.assertTrue(measured['thinking_marker_in_output'])
+            self.assertEqual(measured['repeated_4gram_fraction'], old['repeated_4gram_fraction'])
+            self.assertEqual(measured['training_8gram_fraction'], old['training_8gram_fraction'])
+            history = [dict(role='assistant', content=text)]
+            self.assertTrue(conversation_diagnostics(text, history, raw_text=raw)['thinking_marker_in_output'])
+        self.assertFalse(diagnostics(text,set(),raw_text=text+'<|im_end|>')['thinking_marker_in_output'])
+        self.assertTrue(diagnostics('</think>'+text,set())['thinking_marker_in_output'])
+
     def test_empty_model_reply_is_preserved_for_next_turn_but_user_must_have_text(self):
         history = [dict(role='user',content='First'),dict(role='assistant',content='\n'),
                    dict(role='user',content='Continue')]

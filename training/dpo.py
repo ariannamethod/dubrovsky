@@ -23,6 +23,14 @@ def read_preferences(path):
     return rows
 
 
+def encode_preference(tokenizer, row, max_length=1024):
+    """Both alternatives must see the same complete conversation prefix."""
+    return [encode(tokenizer, dict(id=str(row.get('id', 'preference')),
+                                   question=row['question'], answer=row[key],
+                                   history=row.get('history', [])), max_length)
+            for key in ('chosen', 'rejected')]
+
+
 def main():
     import torch
     import torch.nn.functional as F
@@ -36,6 +44,8 @@ def main():
     p.add_argument('--lr', type=float, default=5e-7)
     p.add_argument('--beta', type=float, default=0.1)
     p.add_argument('--accumulation', type=int, default=8)
+    p.add_argument('--max-length', type=int, default=1024,
+                   help='Maximum complete conversation length; reject rather than truncate')
     p.add_argument('--chosen-nll-weight', type=float, default=0.0,
                    help='Optional preferred-answer NLL anchor (RPO-style; zero is standard DPO)')
     args = p.parse_args()
@@ -59,9 +69,8 @@ def main():
         if isinstance(module, torch.nn.Dropout):
             module.p = 0.0
     encoded = []
-    for i, row in enumerate(rows):
-        encoded.append([encode(tokenizer, dict(id=str(i), question=row['question'], answer=row[key]), 1024)
-                        for key in ('chosen', 'rejected')])
+    for row in rows:
+        encoded.append(encode_preference(tokenizer, row, args.max_length))
     def logp(row):
         inputs = {k: torch.tensor([v], device='cuda') for k, v in row.items()}
         count = sum(t != -100 for t in row['labels'][1:])
@@ -75,7 +84,9 @@ def main():
         raise FloatingPointError('Nonfinite reference log probabilities')
     (args.output / 'reference.json').write_text(json.dumps(reference))
     metadata = {**vars(args), 'preferences_sha256': hashlib.sha256(args.preferences.read_bytes()).hexdigest(),
-                'pairs': len(rows), 'torch': torch.__version__, 'transformers': transformers.__version__,
+                'pairs': len(rows), 'history_pairs': sum(bool(row.get('history')) for row in rows),
+                'max_encoded_tokens': max(len(x['input_ids']) for pair in encoded for x in pair),
+                'torch': torch.__version__, 'transformers': transformers.__version__,
                 'reference': 'same SFT weights before updates; sum of supervised answer-token log probabilities',
                 'seed': 20261031, 'tied_embeddings': tied, 'language_embeddings': 'frozen',
                 'output_head': 'frozen', 'frozen_hashes_before': frozen_hashes}
