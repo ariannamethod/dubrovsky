@@ -268,3 +268,23 @@ Use the same photographs, question file and seeds on both candidates. Recognitio
 of visible objects and the character's invented scene are reviewed separately.
 Do not reuse generated evaluation answers as training targets without explicitly
 changing their role and recording a new holdout split.
+
+### Lineage comparison and export integrity
+
+[The lineage audit](LINEAGE_AUDIT.md) compares the original huihui, early
+English SFT and the selected stage-7 model under matched inference conditions.
+The selected weights remain unchanged. New grammar-choice diagnostics distinguish
+exact answers from option mentions so character narration is not silently scored
+as an ordinary one-word answer:
+
+```sh
+python training/score_language_choices.py \
+  --references /private/evaluation/grammar-references.json \
+  --generations /private/results/huihui-grammar.jsonl /private/results/selected-grammar.jsonl \
+  --output /private/results/grammar-summary.json
+```
+
+SFT BF16 export now retains shared embedding/head storage. Unit checks for real
+PyTorch tensor aliasing run when PyTorch is installed; the actual Qwen round-trip
+measurements are recorded in the audit. Private prompts and outputs remain on
+Hugging Face.

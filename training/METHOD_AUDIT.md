@@ -91,3 +91,12 @@ independent language reference set, and separate ordinary grammar failures
 from authored wordplay. The prepared contextual preferences remain available
 for a separately measured DPO trial. The selected model and decoding profile
 remain unchanged.
+
+## Follow-up: matched lineage and serialization audit
+
+The [three-stage comparison](LINEAGE_AUDIT.md) now measures the base, early
+English-only SFT and stage 7 on identical fresh scenes, conversations and new
+word-choice prompts. It observes language switching after English SFT and
+recovery of predominant response language in stage 7, alongside remaining
+agreement and callback errors. It also identifies and fixes duplicated tied
+weights in SFT exports, with an actual Qwen tensor round trip.
