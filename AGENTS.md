@@ -22,8 +22,10 @@ This repository is **subordinate to the [Arianna Method Manifesto](ARIANNA_METHO
   verify their byte-level integrity before and after optimization. Freeze the
   visual encoder during the text-only stage. Evaluate language retention from
   generations, including Russian and Hebrew.
-- Start with the authored English corpus. Evaluate other languages from actual
-  generations before adding language-polishing data.
+- Preserve the authored English corpus as the character's lineage. For the
+  current multilingual reconstruction, compare the reviewed six-language mixture
+  from the first update against a matched English-first schedule. Evaluate actual
+  language and character generations before selecting a candidate.
 - Evaluate character, associative response to the prompt, diversity, repetition,
   and corpus memorization. A low training loss alone is not success.
 - Record data provenance, deduplication, held-out splits, model revision, training

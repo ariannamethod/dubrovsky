@@ -100,3 +100,13 @@ word-choice prompts. It observes language switching after English SFT and
 recovery of predominant response language in stage 7, alongside remaining
 agreement and callback errors. It also identifies and fixes duplicated tied
 weights in SFT exports, with an actual Qwen tensor round trip.
+
+## Follow-up: matched multilingual SFT and closure
+
+[The completed joint trial](JOINT_MULTILINGUAL.md) compares three fresh-base
+SFT runs with identical source examples and exposure counts. It verifies consumed
+row order and separates fresh reference loss from legacy development loss.
+It confirms learned immediate thinking closure with nonempty answers in 52
+open-prefix continuations, while recording continuing language and scene-memory
+errors. A reviewed Russian GPT API pilot is saved for the next trial, not folded
+retroactively into the evaluated runs.

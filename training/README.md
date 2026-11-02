@@ -288,3 +288,25 @@ SFT BF16 export now retains shared embedding/head storage. Unit checks for real
 PyTorch tensor aliasing run when PyTorch is installed; the actual Qwen round-trip
 measurements are recorded in the audit. Private prompts and outputs remain on
 Hugging Face.
+
+### Matched multilingual SFT
+
+[The joint multilingual trial](JOINT_MULTILINGUAL.md) compares language ordering
+from the original huihui and separately tests learned immediate thinking closure.
+Prepared schedules can retain their exact row order and report intermediate
+validation without changing the default shuffled-training behavior:
+
+```sh
+python training/sft.py --model /private/pinned-huihui \
+  --data /private/prepared-mixed --output /private/new-mixed-run \
+  --epochs 1 --ordered-training --eval-every-steps 40 \
+  --lr 3e-6 --max-length 3072 --answer-logits-only
+```
+
+Here the prepared input already contains three presentations per source record;
+`--epochs 1` consumes that complete schedule once. `training_order.jsonl` records
+the actual record IDs and languages at every optimizer step. Optional
+`evaluation_group` tags in validation rows separate fresh references from legacy
+development references in `validation_by_group`. They do not affect supervision
+or the existing aggregate/per-language loss. Add `--supervise-empty-thinking`
+only for the explicitly matched closure arm.
