@@ -484,3 +484,81 @@ The epoch-1 candidate is backed up privately under
 `805bc6e493f284be8b20c262b8fe65070c886c27`. The previous epoch-3 candidate remains
 preserved. This text continuation has not yet received a fresh image check.
 Final model release, quantization and NoTorch deployment remain upcoming work.
+
+## Grammar and scene continuity pilot (stage 8)
+
+After PR 13 merged, five internal literary agents authored 24 short QA and two
+8-turn conversations per language in FR/DE/ES/RU/HE: 200 new answers. Each
+conversation switches scene and secondary cast at turn 5. Astra read all targets,
+requested variation in 22 Russian answers whose narration was too formulaic,
+corrected two Hebrew language details, and replaced two probe questions that
+were too close to another language's training premise. Original drafts remain
+in the private archive. Exact probe questions stay outside training; recurring
+lore motifs make these composition/transfer probes.
+
+The replay mixture contains 842 unique question/answer records:
+EN 228/RU 171/HE 167/FR 92/DE 92/ES 92, with 311 complete prior histories. The unchanged
+validation set has 79 records. Native nonthinking templates and answer-only
+masks were checked without truncation; maximum training length remains 1361.
+One full language-body SFT epoch from the selected stage 7 checkpoint used 53
+optimizer updates, LR 2e-6 and accumulation 16. Training, validation and export
+finished in 461.01 seconds, with 11.215 GiB peak allocated memory. Embedding/head
+hashes stayed identical. All 153 exported visual tensors also match the input
+checkpoint byte for byte.
+
+| Validation language | Before | After |
+| --- | ---: | ---: |
+| English |3.3928|3.6483|
+| Russian |3.7117|3.5858|
+| Hebrew |3.2354|3.1059|
+| French |3.0866|3.0397|
+| German |3.3990|3.3553|
+| Spanish |3.1424|3.1065|
+
+The generation experiment contains 232 records: 101 from stage 7, 121 from stage 8,
+and 10 from the pinned original huihui base. All 222 Dubrovsky candidate answers
+reach EOS. Two original-base answers reach EOS; eight hit the 192-token cap.
+Truncation is tracked separately from repetitive loops. The restored stage 7
+also reproduces all 18 prior FR/DE/ES conversation answers token for token on the
+same RTX 4090/software/settings.
+
+Paired evaluation uses 30 fresh language questions, five 6-turn actual-history
+conversations, and 21 image probes per checkpoint. A further 20-turn English
+conversation checks stage 8 against the saved stage 7 run. The same ten fresh
+prompts also receive presence 0/1 controls on both checkpoints, alongside their
+presence 2 answers, all at T=0.8/top-p 1/top-k 20/seed 42. Lower penalties do not provide
+a general grammar repair; the Hebrew P 0 result repeats clauses. The original
+huihui control uses five of these questions at P=0/P=2 and also shows language and
+prompt-relevance defects.
+
+Five internal editorial reviews received shuffled A/B labels. French and Spanish
+reviewers recognized earlier dialogue text; the review records retain this fact.
+Across 30 fresh pairs, preferences are 10 for stage 8, 9 for stage 7, 11 ties. Spanish
+scene reset improves; French dialogue readability and Russian direct response
+show small gains. German remains severely impaired; Hebrew slightly favors the
+previous checkpoint. Both German and Russian still carry old-scene material
+into the new bakery. This is editorial evidence from the retained literal
+outputs, not a fluency benchmark score.
+
+Stage 8 completes 20 English turns with no repeated four-grams inside an answer,
+maximum prior-answer four-gram overlap 7.14%, and maximum prompt length 1443.
+Reading the whole exchange reveals poorer agreement, weaker referents and
+wetness/umbrella motifs persisting into later scenes. The earlier stage 7 run
+has the stronger ending and clearer requested shadow callback. These defects
+remain visible even where simple repetition measurements look clean.
+
+Both checkpoints identify the central subjects of the three photographs in
+English literal descriptions. Finer details are inaccurate, creative astronaut
+answers repeatedly restate the same premise, and multilingual image grounding
+remains weak. All 21 before/after pairs use identical image hashes, questions,
+question-set hash, seed and decoding settings.
+
+**Selection: retain stage 7 as the primary candidate.** Stage 8 remains on its
+stopped training volume as an unselected experiment. The primary private HF
+weights remain `working/six-language-polish-epoch001` at commit
+`805bc6e493f284be8b20c262b8fe65070c886c27`; no new model version was promoted.
+All new data, corrected and original drafts, mixtures, raw generations and
+reviews are backed up in the private HF dataset repository under
+`additions/2026-11-02-grammar-continuity/`. All three RunPod GPUs are stopped.
+Next work needs broader native-language material and controlled English
+retention before another broad multilingual update.
