@@ -44,8 +44,18 @@ def chat_eos(model, tokenizer):
 
 
 def encode(tokenizer, row, max_length):
-    messages = [{'role': 'system', 'content': SYSTEM},
-                {'role': 'user', 'content': row['question']}]
+    messages = [{'role': 'system', 'content': SYSTEM}]
+    history = row.get('history', [])
+    if not isinstance(history, list) or len(history) % 2:
+        raise ValueError('History must contain complete user/assistant turns')
+    for index, message in enumerate(history):
+        role = 'user' if index % 2 == 0 else 'assistant'
+        if (not isinstance(message, dict) or message.get('role') != role
+                or not isinstance(message.get('content'), str)):
+            raise ValueError('History must alternate text user and assistant messages')
+        messages.append(dict(role=role, content=message['content'],
+                             **({'reasoning_content': ''} if role == 'assistant' else {})))
+    messages.append({'role': 'user', 'content': row['question']})
     prefix = tokenizer.apply_chat_template(messages, tokenize=True,
                                           add_generation_prompt=True, enable_thinking=False, return_dict=False)
     complete = tokenizer.apply_chat_template(
@@ -61,13 +71,33 @@ def encode(tokenizer, row, max_length):
     return {'input_ids': complete, 'labels': labels}
 
 
+def supervision_tail(labels):
+    first = next((i for i, token in enumerate(labels) if token != -100), None)
+    if first is None:
+        raise ValueError('No supervised tokens')
+    keep = min(len(labels), len(labels) - first + 1)
+    return labels[-keep:], keep
+
+
+def read_rows(path):
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    seen = set()
+    for row in rows:
+        if row['id'] in seen:
+            raise ValueError(f"Duplicate training record ID in {path}: {row['id']}")
+        seen.add(row['id'])
+    if not rows:
+        raise ValueError('Empty split: '+str(path))
+    return rows
+
+
 def main():
     import torch
     import transformers
     from transformers import AutoTokenizer, AutoProcessor, Qwen3_5ForConditionalGeneration
     p = argparse.ArgumentParser()
     p.add_argument('--model', default='huihui-ai/Huihui-Qwen3.5-0.8B-abliterated')
-    p.add_argument('--revision', required=True)
+    p.add_argument('--revision', help='Required for remote models; local candidates use their files')
     p.add_argument('--data', type=Path, required=True)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--epochs', type=int, default=3)
@@ -75,7 +105,14 @@ def main():
     p.add_argument('--accumulation', type=int, default=16)
     p.add_argument('--max-length', type=int, default=1024)
     p.add_argument('--max-steps', type=int, default=0)
+    p.add_argument('--save-each-epoch', action='store_true')
+    p.add_argument('--answer-logits-only', action='store_true',
+                   help='Keep full attention history but project only supervised answer positions plus their predecessor')
     args = p.parse_args()
+    if args.epochs < 1 or args.accumulation < 1:
+        raise ValueError('Epochs and accumulation must be positive')
+    if not Path(args.model).is_dir() and not args.revision:
+        raise ValueError('Pin a revision when loading a remote model')
     if not torch.cuda.is_available():
         raise RuntimeError('This training entry point requires CUDA')
     if args.output.exists():
@@ -86,8 +123,13 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
     processor = AutoProcessor.from_pretrained(args.model, revision=args.revision)
     def read(name):
-        return [encode(tokenizer, json.loads(line), args.max_length)
-                for line in (args.data / name).read_text().splitlines()]
+        result = []
+        for row in read_rows(args.data / name):
+            result.append(dict(encode(tokenizer, row, args.max_length),
+                               language=row.get('language', 'en')))
+        if not result:
+            raise ValueError('Empty split: '+name)
+        return result
     train, validation = read('train.jsonl'), read('validation.jsonl')
     model = Qwen3_5ForConditionalGeneration.from_pretrained(
         args.model, revision=args.revision, dtype=torch.float32, attn_implementation='sdpa').cuda()
@@ -113,7 +155,12 @@ def main():
     (args.output / 'run.json').write_text(json.dumps(run, default=str, indent=2))
     print(json.dumps(run, default=str), flush=True)
     def tensors(row):
-        return {k: torch.tensor([v], device='cuda') for k, v in row.items()}
+        values = {k: torch.tensor([row[k]], device='cuda') for k in ('input_ids','labels')}
+        if args.answer_logits_only:
+            labels, keep = supervision_tail(row['labels'])
+            values['labels'] = torch.tensor([labels], device='cuda')
+            values['logits_to_keep'] = keep
+        return values
     def log(row):
         row['elapsed_seconds'] = round(time.monotonic() - started, 2)
         with (args.output / 'metrics.jsonl').open('a') as f:
@@ -122,7 +169,7 @@ def main():
     @torch.no_grad()
     def evaluate(step):
         model.eval()
-        loss_sum, n = 0.0, 0
+        loss_sum, n, by_language = 0.0, 0, {}
         for row in validation:
             count = sum(x != -100 for x in row['labels'][1:])
             with torch.autocast('cuda', dtype=torch.bfloat16):
@@ -131,8 +178,42 @@ def main():
                 raise FloatingPointError('Nonfinite validation loss')
             loss_sum += loss.item() * count
             n += count
-        log({'step': step, 'validation_loss': loss_sum / n})
+            values = by_language.setdefault(row['language'], [0.0, 0])
+            values[0] += loss.item() * count
+            values[1] += count
+        log({'step': step, 'validation_loss': loss_sum / n,
+             'validation_by_language': {k: {'loss': v[0]/v[1], 'answer_tokens': v[1]}
+                                        for k,v in by_language.items()}})
         model.train()
+    def save_candidate(destination, step, epoch):
+        after_hashes = language_interface_hashes(model)
+        if frozen_hashes != after_hashes:
+            raise RuntimeError('Frozen language embeddings/head changed during training')
+        # Export a CPU BF16 state without changing FP32 training parameters or Adam state.
+        state = {k: (v.detach().to(device='cpu', dtype=torch.bfloat16)
+                     if v.is_floating_point() else v.detach().cpu())
+                 for k,v in model.state_dict().items()}
+        previous_cache = model.config.use_cache
+        model.config.use_cache = True
+        model.generation_config.eos_token_id = chat_eos(model, tokenizer)
+        try:
+            model.save_pretrained(destination, state_dict=state, safe_serialization=True)
+            # save_pretrained infers dtype from the FP32 training model, not supplied state.
+            config_path = destination/'config.json'
+            config = json.loads(config_path.read_text())
+            config['dtype'] = 'bfloat16'
+            if 'torch_dtype' in config:
+                config['torch_dtype'] = 'bfloat16'
+            config_path.write_text(json.dumps(config, indent=2)+'\n')
+            processor.save_pretrained(destination)
+            tokenizer.save_pretrained(destination)
+            (destination/'training_checkpoint.json').write_text(json.dumps({
+                'step':step, 'epoch':epoch, 'export_dtype':'bfloat16',
+                'purpose':'candidate evaluation; optimizer state not included',
+                'frozen_hashes_before_export':after_hashes}, indent=2)+'\n')
+        finally:
+            model.config.use_cache = previous_cache
+        log({'step':step, 'epoch':epoch, 'checkpoint':str(destination)})
     started = time.monotonic()
     evaluate(0)
     step = 0
@@ -164,6 +245,9 @@ def main():
             if step >= total_steps:
                 break
         evaluate(step)
+        if args.save_each_epoch:
+            last_checkpoint = args.output/f'epoch-{epoch+1:03d}'
+            save_candidate(last_checkpoint, step, epoch+1)
         if step >= total_steps:
             break
     # Candidate stays on the training disk until generation-based selection.
@@ -173,12 +257,10 @@ def main():
     (args.output / 'frozen_integrity.json').write_text(json.dumps(
         {'before': frozen_hashes, 'after': after_hashes, 'identical': True}, indent=2))
     candidate = args.output / 'candidate'
-    model.config.use_cache = True
-    model.generation_config.eos_token_id = chat_eos(model, tokenizer)
-    model.gradient_checkpointing_disable()
-    model.to(dtype=torch.bfloat16).save_pretrained(candidate, safe_serialization=True)
-    processor.save_pretrained(candidate)
-    tokenizer.save_pretrained(candidate)
+    if args.save_each_epoch:
+        candidate.symlink_to(last_checkpoint.name, target_is_directory=True)
+    else:
+        save_candidate(candidate, step, epoch+1)
     print(json.dumps({'status': 'completed', 'candidate': str(candidate)}), flush=True)
 
 

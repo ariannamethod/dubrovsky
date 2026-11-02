@@ -6,6 +6,7 @@ import re
 import time
 
 from sft import SYSTEM, chat_eos
+from decoding import PRESETS, generation_kwargs
 
 PROBES = [
     ('en', 'Who are you?'),
@@ -51,6 +52,7 @@ def main():
     p.add_argument('--limit', type=int, default=len(PROBES))
     p.add_argument('--prompts', type=Path, help='JSONL with language and question fields')
     p.add_argument('--system', default=SYSTEM)
+    p.add_argument('--preset', choices=PRESETS, default='baseline')
     args = p.parse_args()
     probes = PROBES
     if args.prompts:
@@ -77,8 +79,8 @@ def main():
                 ids = torch.tensor([prompt], device='cuda')
                 start = time.monotonic()
                 result = model.generate(input_ids=ids, attention_mask=torch.ones_like(ids),
-                    max_new_tokens=args.max_new_tokens, do_sample=True,
-                    temperature=0.8, top_p=0.9, top_k=20, repetition_penalty=1.0,
+                    max_new_tokens=args.max_new_tokens,
+                    **generation_kwargs(args.preset, len(prompt)),
                     pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
                     use_cache=True, eos_token_id=eos)[0, len(prompt):].tolist()
                 text = tokenizer.decode(result, skip_special_tokens=True)
@@ -86,7 +88,8 @@ def main():
                     language=language, question=question, seed=seed, text=text,
                     token_ids=result, eos_token_ids=eos, eos_reached=bool(result and result[-1] in eos),
                     elapsed_seconds=time.monotonic()-start,
-                    sampling=dict(temperature=0.8, top_p=0.9, top_k=20, repetition_penalty=1.0),
+                    sampling=dict(preset=args.preset, **PRESETS[args.preset],
+                                  min_p=0.0, repetition_penalty=1.0),
                     transformers=transformers.__version__, torch=torch.__version__,
                     diagnostics=diagnostics(text, corpus))
                 f.write(json.dumps(row, ensure_ascii=False) + '\n'); f.flush()

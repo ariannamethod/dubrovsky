@@ -1,10 +1,73 @@
 import unittest
 from prepare_corpus import normalize, parse, split_pairs
-from sft import encode, chat_eos
+from sft import encode, chat_eos, read_rows, supervision_tail
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from prepare_dialogues import conversation_rows
+from build_dialogue_mixture import sample_replay
+from chat_probe import conversation_diagnostics
 from types import SimpleNamespace
 
 
 class CorpusTests(unittest.TestCase):
+    def test_conversation_copy_diagnostic_compares_previous_answers_only(self):
+        old='The train is gone forever.'
+        messages=[{'role':'user','content':'A new cabbage sings softly.'},
+                  {'role':'assistant','content':old}]
+        self.assertEqual(conversation_diagnostics(old,messages)['prior_answer_4gram_fraction'],1)
+        self.assertEqual(conversation_diagnostics('A new cabbage sings softly.',messages)['prior_answer_4gram_fraction'],0)
+        self.assertIsNone(conversation_diagnostics(old,messages)['training_8gram_fraction'])
+
+    def test_language_replay_excludes_even_first_dialogue_turn(self):
+        rows=[dict(id='dialogue-one-01',language='he',history=[]),
+              dict(id='dialogue-one-02',language='he',history=[{'role':'user','content':'Q'}]),
+              dict(id='authored-he',language='he')]
+        self.assertEqual([r['id']for r in sample_replay(rows,{'he':1},42)],['authored-he'])
+        with self.assertRaisesRegex(ValueError,'Insufficient replay'):
+            sample_replay(rows,{'he':2},42)
+
+    def test_answer_projection_keeps_first_answer_prediction(self):
+        labels, keep = supervision_tail([-100, -100, -100, 41, 42, 99])
+        self.assertEqual(labels, [-100, 41, 42, 99])
+        self.assertEqual(keep, 4)
+        self.assertEqual(labels[1:], [41, 42, 99])
+        self.assertEqual(supervision_tail([41,42]), ([41,42],2))
+        with self.assertRaises(ValueError):
+            supervision_tail([-100,-100])
+
+    def test_replay_cannot_duplicate_an_existing_dialogue_record(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory)/'train.jsonl'
+            path.write_text('{"id":"dialogue-1"}\n{"id":"replay-2"}\n{"id":"dialogue-1"}\n')
+            with self.assertRaisesRegex(ValueError, 'Duplicate training record ID'):
+                read_rows(path)
+            path.write_text('{"id":"dialogue-1"}\n{"id":"replay-2"}\n')
+            self.assertEqual(len(read_rows(path)), 2)
+
+    def test_dialogue_rows_never_include_current_or_future_answers_in_history(self):
+        rows = conversation_rows(dict(id='clock', language='en',
+            turns=[['Q1','A1'], ['Q2','A2'], ['Q3','A3']]))
+        self.assertEqual([len(r['history']) for r in rows], [0,2,4])
+        self.assertEqual([m['content'] for m in rows[1]['history']], ['Q1','A1'])
+        self.assertEqual([m['content'] for m in rows[2]['history']], ['Q1','A1','Q2','A2'])
+
+    def test_history_conditions_answer_without_supervising_prior_turns(self):
+        class Tokenizer:
+            def apply_chat_template(self, messages, **kwargs):
+                text = ''.join('<'+m['role']+'>'+m['content']+'<end>' for m in messages)
+                if kwargs['add_generation_prompt']:
+                    text += '<assistant>'
+                return list(text.encode())
+        row = dict(id='conversation', question='And the clock?', answer='It grew roots.',
+                   history=[{'role':'user','content':'Where is Tuesday?'},
+                            {'role':'assistant','content':'Inside the bread.'}])
+        encoded = encode(Tokenizer(), row, 1024)
+        supervised = bytes(x for x in encoded['labels'] if x != -100).decode()
+        self.assertEqual(supervised, 'It grew roots.<end>')
+        self.assertIn(b'Inside the bread.', bytes(encoded['input_ids']))
+        with self.assertRaises(ValueError):
+            encode(Tokenizer(), dict(row,history=row['history'][:1]),1024)
+
     def test_chat_turn_stop_keeps_model_stop(self):
         model = SimpleNamespace(generation_config=SimpleNamespace(eos_token_id=248044))
         tokenizer = SimpleNamespace(eos_token_id=248046)

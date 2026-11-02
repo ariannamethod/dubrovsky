@@ -28,7 +28,9 @@ This repository is **subordinate to the [Arianna Method Manifesto](ARIANNA_METHO
   and corpus memorization. A low training loss alone is not success.
 - Record data provenance, deduplication, held-out splits, model revision, training
   settings, and generation settings so results can be reproduced.
-- Upload only the final selected weights to the private Hugging Face repository.
+- Keep the final selected unquantized and quantized weights in the private
+  Hugging Face repository. Oleg also authorizes temporary weight backups there
+  when needed; remove temporary artifacts after the final selection is secure.
   Keep intermediate weights, private source datasets, and credentials out of git.
 
 ## Collaboration and verification
