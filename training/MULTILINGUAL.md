@@ -1,4 +1,4 @@
-# Multilingual preparation — 2026-11-02
+# Multilingual Dubrovsky — data and experiments, 2026-11-02
 
 The creator traces Dubrovsky's beginnings to the voice-input insertion
 «Спасибо за субтитры Алексею Дубровскому» and Russian dialogues with GPT-4o.
@@ -122,7 +122,7 @@ candidate; the result is recorded below.
 After training, run 12–20-turn conversations with a GPT partner that follows
 specific details in Dubrovsky's answers, complicates the scene and recalls
 earlier details. Save full histories and evaluate development, repetition,
-language, identity and continuity. A preserved-history partner test is underway; its measured failures are recorded below.
+language, identity and continuity. Preserved-history partner tests and their literal outputs are recorded below.
 
 ## Compute and continuation
 
@@ -205,8 +205,8 @@ and reviewed by Astra's translation agent without external API calls.
 supervises only the current answer. The expanded run starts from the DPO candidate
 with three epochs, learning rate 3e-6 and frozen embeddings/head/vision. Its native
 tokenizer check passes; maximum training length is 585 tokens. All three epochs completed: 1,428 example presentations and 90 optimizer
-updates. Per-epoch generation comparisons are in progress; no successful long
-conversation is claimed yet.
+updates. Per-epoch comparisons and the subsequent partner conversations are
+recorded below.
 
 Twelve unit tests pass, including preventing current/future-answer leakage into
 conversation history and excluding history tokens from supervised loss.
@@ -321,10 +321,65 @@ retained privately. Both translated versions were read in full by their author
 and by Astra; Hebrew received three documented wording refinements.
 
 The selected English candidate starts a three-epoch multilingual continuation
-at 2e-6, with every epoch exported. This stage is running; its outputs are not
-yet selected. A direct fit comparison on the 48 twelve-turn English demonstrations
+at 2e-6, with every epoch exported. All three epochs completed; epoch 3 is
+undergoing partner conversation and vision checks. A direct fit comparison on the 48 twelve-turn English demonstrations
 found answer-token loss decreased from approximately 4.55 to 3.12 after the
 preceding English continuation. Its separate basement/airport conversation still
 reused prior answers: 52.8% of turn-5 four-grams appeared in earlier assistant
 answers. `chat_probe.py` now records that cross-answer fraction. User turns do
 not enter this diagnostic. Sixteen unit tests pass.
+
+The long multilingual stage completed 1,458 example presentations and 93
+optimizer updates in 375.35 seconds including exports. Peak allocation was
+11.212 GiB. Each saved epoch terminated all fourteen fixed baseline probes.
+Russian and Hebrew still contain grammatical defects; validation loss increased
+from 3.55687 to 3.99977 across the run. Literal generations, rather than that
+loss alone, guide further character selection.
+
+For the same new button/swimming-pool question and seed, epoch 1 at baseline
+settings repeated until the token limit; epoch 3 stopped normally. The epoch-3
+official text preset (temperature 1.0, top-p 1.0, top-k 20, presence penalty 2.0)
+gave a shorter alternative and was retained for a new partner conversation. Its
+first scene change, from the pool/wedding to potato/radio, stayed with the new
+scene. This differs from the earlier basement/airport test, which used baseline
+sampling and another conversation.
+
+A separate cached/uncached comparison used identical history, weights, seed and
+baseline settings. Sampled token IDs were identical. Eight greedy cached
+next-token choices also matched full-context recomputation; their largest
+BF16 logit difference was 0.46875. `check_decode_parity.py` stores the per-step
+comparison. `chat_probe.py --no-cache` exposes the recomputation path.
+
+The epoch-3 image check reused the same three photographs and official vision
+preset. All twelve outputs are preserved. English descriptions retained the
+astronaut suit, tabby cat and espresso cup, while adding detail errors such as
+coffee being poured with a spoon. The spoon/saucer and helmet also entered the
+character responses. Russian/Hebrew grammar remains weak.
+
+The new Russian partner probe changed from potato/radio to a knotted staircase
+at turn 3 without returning to radio; its case and phrasing errors remained.
+A fresh Hebrew knot-museum response contained malformed wording and foreign-script
+intrusions. These language defects remain part of the next polishing work.
+A temporary epoch-3 private Hugging Face backup was completed while partner
+evaluation continued.
+
+The epoch-3 English conversation on the official text preset reached twelve
+partner turns with the complete history retained. It moved from button/pool
+to potato/radio (turn 4), knot museum (turn 7) and cinema/subtitle strike
+(turn 11). Turn 10 explicitly returned to the original room-refusing button.
+At turn 8, the nameless neck's biography became: “A man who never arrived,
+whose arrival was the point.” The partner turns followed the model's actual
+answers. They were written by Astra in this session.
+
+The selected continuation candidate remains backed up privately under
+`working/long-dialogue-multilingual-epoch003`. Its tested English generation
+profile is preserved with the private experiment archive. Final unquantized
+and quantized release selection and NoTorch deployment follow the remaining
+language work and creator review.
+
+All twelve English answers terminated normally. The largest prompt was 1,079
+tokens. Neither within-answer nor prior-assistant-answer four-gram diagnostics
+found repeated chains in this particular conversation. The final cinema answer
+left “a single frame that never moved” and Dubrovsky becoming “the story itself.”
+Raw English, Russian and Hebrew outputs are collected in the private readable
+conversation transcript, alongside full JSON histories and generation settings.

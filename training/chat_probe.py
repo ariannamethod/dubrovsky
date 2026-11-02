@@ -31,6 +31,7 @@ def main():
     p.add_argument('--preset',choices=PRESETS,default='baseline')
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--max-new-tokens',type=int,default=192)
+    p.add_argument('--no-cache',action='store_true',help='Recompute full context to compare against cached decoding')
     args=p.parse_args()
     if args.output.exists():
         raise ValueError('Preserve earlier conversational outputs')
@@ -57,12 +58,13 @@ def main():
     with torch.inference_mode():
         ids=model.generate(input_ids=inputs,attention_mask=torch.ones_like(inputs),
             **generation_kwargs(args.preset,len(prompt)),max_new_tokens=args.max_new_tokens,
-            eos_token_id=eos,pad_token_id=tokenizer.pad_token_id,use_cache=True)[0,len(prompt):].tolist()
+            eos_token_id=eos,pad_token_id=tokenizer.pad_token_id,use_cache=not args.no_cache)[0,len(prompt):].tolist()
     text=tokenizer.decode(ids,skip_special_tokens=True)
     measured=conversation_diagnostics(text,messages)
     record=dict(model=args.model,partner=source.get('partner','unspecified'),
         messages=messages+[{'role':'assistant','content':text}],text=text,token_ids=ids,
         prompt_tokens=len(prompt),seed=args.seed,preset=args.preset,sampling=PRESETS[args.preset],
+        use_cache=not args.no_cache,
         eos_reached=bool(ids and ids[-1] in eos),elapsed_seconds=time.monotonic()-started,
         diagnostics=measured)
     args.output.parent.mkdir(parents=True,exist_ok=True)
