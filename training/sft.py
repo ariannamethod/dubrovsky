@@ -150,6 +150,10 @@ def main():
     p.add_argument('--max-length', type=int, default=1024)
     p.add_argument('--max-steps', type=int, default=0)
     p.add_argument('--save-each-epoch', action='store_true')
+    p.add_argument('--ordered-training', action='store_true',
+                   help='Consume the prepared training row order exactly; used for matched curriculum comparisons')
+    p.add_argument('--eval-every-steps', type=int, default=0,
+                   help='Additional validation interval within an epoch; zero evaluates only at epoch boundaries')
     p.add_argument('--answer-logits-only', action='store_true',
                    help='Keep full attention history but project only supervised answer positions plus their predecessor')
     p.add_argument('--supervise-empty-thinking', action='store_true',
@@ -157,8 +161,8 @@ def main():
     p.add_argument('--thinking-closure-only', action='store_true',
                    help='Train only that empty transition; current answers are excluded from the training sequence')
     args = p.parse_args()
-    if args.epochs < 1 or args.accumulation < 1:
-        raise ValueError('Epochs and accumulation must be positive')
+    if args.epochs < 1 or args.accumulation < 1 or args.eval_every_steps < 0:
+        raise ValueError('Epochs and accumulation must be positive; evaluation interval must be nonnegative')
     if args.thinking_closure_only and not args.supervise_empty_thinking:
         raise ValueError('--thinking-closure-only requires --supervise-empty-thinking')
     if not Path(args.model).is_dir() and not args.revision:
@@ -178,7 +182,8 @@ def main():
             result.append(dict(encode(tokenizer, row, args.max_length,
                                supervise_empty_thinking=args.supervise_empty_thinking and name == 'train.jsonl',
                                thinking_closure_only=args.thinking_closure_only and name == 'train.jsonl'),
-                               language=row.get('language', 'en')))
+                               language=row.get('language', 'en'), id=row['id'],
+                               evaluation_group=row.get('evaluation_group', 'default')))
         if not result:
             raise ValueError('Empty split: '+name)
         return result
@@ -224,7 +229,7 @@ def main():
     @torch.no_grad()
     def evaluate(step):
         model.eval()
-        loss_sum, n, by_language = 0.0, 0, {}
+        loss_sum, n, by_language, by_group = 0.0, 0, {}, {}
         for row in validation:
             count = sum(x != -100 for x in row['labels'][1:])
             with torch.autocast('cuda', dtype=torch.bfloat16):
@@ -236,9 +241,16 @@ def main():
             values = by_language.setdefault(row['language'], [0.0, 0])
             values[0] += loss.item() * count
             values[1] += count
+            grouped = by_group.setdefault(row['evaluation_group'], {}).setdefault(row['language'], [0.0, 0])
+            grouped[0] += loss.item() * count
+            grouped[1] += count
         log({'step': step, 'validation_loss': loss_sum / n,
              'validation_by_language': {k: {'loss': v[0]/v[1], 'answer_tokens': v[1]}
-                                        for k,v in by_language.items()}})
+                                        for k,v in by_language.items()},
+             'validation_by_group': {
+                 group: {lang: {'loss': v[0]/v[1], 'answer_tokens': v[1]}
+                         for lang, v in languages.items()}
+                 for group, languages in by_group.items()}})
         model.train()
     def save_candidate(destination, step, epoch):
         after_hashes = language_interface_hashes(model)
@@ -272,7 +284,8 @@ def main():
     step = 0
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(args.epochs):
-        random.shuffle(train)
+        if not args.ordered_training:
+            random.shuffle(train)
         for start in range(0, len(train), args.accumulation):
             group = train[start:start + args.accumulation]
             n_tokens = sum(sum(t != -100 for t in x['labels'][1:]) for x in group)
@@ -295,6 +308,14 @@ def main():
             log({'step': step, 'epoch': epoch + 1, 'train_loss': mean_loss,
                  'grad_norm': norm.item(), 'lr': args.lr * factor,
                  'peak_gpu_gib': torch.cuda.max_memory_allocated() / 2**30})
+            with (args.output / 'training_order.jsonl').open('a') as f:
+                f.write(json.dumps({'step': step, 'epoch': epoch + 1,
+                                    'ids': [x['id'] for x in group],
+                                    'languages': [x['language'] for x in group],
+                                    'answer_tokens': n_tokens}) + '\n')
+            if (args.eval_every_steps and step % args.eval_every_steps == 0
+                    and step < total_steps and start + args.accumulation < len(train)):
+                evaluate(step)
             if step >= total_steps:
                 break
         evaluate(step)

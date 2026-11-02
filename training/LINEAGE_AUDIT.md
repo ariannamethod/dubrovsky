@@ -122,3 +122,11 @@ pairs before selection on replacement scenes.
 Private inputs, reference answers, full responses, file hashes, manual language
 labels, operators and measurements are backed up under
 `ataeff/Dubrovsky` (dataset), `additions/2026-11-02-lineage-audit/`.
+
+## Subsequent controlled reconstruction
+
+At Oleg's request, the [joint multilingual comparison](JOINT_MULTILINGUAL.md)
+now starts three matched runs from original huihui rather than continuing stage 7.
+It tests the historical ordering hypothesis and learned native thinking closure
+separately. This subsequent experiment does not change the lineage observations
+above or claim to replay the entire earlier training chain.
