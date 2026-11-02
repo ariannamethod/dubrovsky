@@ -383,3 +383,104 @@ found repeated chains in this particular conversation. The final cinema answer
 left “a single frame that never moved” and Dubrovsky becoming “the story itself.”
 Raw English, Russian and Hebrew outputs are collected in the private readable
 conversation transcript, alongside full JSON histories and generation settings.
+
+## Controlled sampling and six-language continuation — 2026-11-02
+
+After PR 12 merged, the same backed-up long-multilingual epoch 3 candidate received
+213 controlled generations: 48 English fixed-history answers, 90 language
+answers, 60 English dialogue turns and 15 corresponding original-huihui controls.
+`compare_sampling.py` uses explicit settings without changing the existing presets.
+The fixed-history grid crosses temperatures 0.6/0.8/1.0/1.2 with generated-token
+presence penalties 0/2, holding top-p 1, top-k 20 and seeds 42/137 fixed. Every one of
+the 48 answers terminated; some temperature 1.2 outputs have malformed grammar.
+
+The twenty-turn dialogue comparison uses one seed and separate actual histories
+for T=0.6/P=0, T=0.8/P=2 and T=1/P=2. It changes scenes at turns 5/9/13/17 and requests an
+earlier shadow at 19. All 60 answers terminated. Maximum fractions of current
+four-grams seen in earlier assistant answers were 24.24%, 3.57%, 0%, respectively.
+At T=0.6/P=0, the election also leaked into the railway scene. T=0.8/P=2 made the shadow
+callback more explicit than T=1/P=2. T=0.8/P=2 is the provisional long-chat profile;
+T=1/P=2 remains a creative alternative. These results cover one scripted scenario
+per setting. Creator reading of further conversations guides selection.
+
+Language probes cover French, German, Spanish, Russian and Hebrew, three prompts
+and two seeds each, at T=0.8/P=2, T=1/P=1 and T=1/P=2. All 90 terminate, while agreement,
+case, conjugation and occasional foreign-language intrusions remain. Presence 1
+at T=1 does not consistently repair grammar. The pinned original huihui checkpoint
+also shows defects on the same 15 prompts at T=1/P=2, seed 42. Three original-model
+answers terminate within 192 tokens; the others are truncated, often while giving
+generic advice. Truncation is recorded separately from repeated-token loops.
+
+The official Qwen3.5-0.8B model card recommends T=1/top-p=1/top-k=20/presence=2 for
+nonthinking text, and notes that stronger presence penalties can encourage
+language mixing. The controlled grid and literal outputs guide Dubrovsky's own
+selection rather than assuming the original recommendation is its optimum:
+https://huggingface.co/Qwen/Qwen3.5-0.8B#best-practices
+
+Oleg requested private Hugging Face backups of all newly generated and corrected
+data. The private **dataset** repository `ataeff/Dubrovsky` now retains the
+original corpus, raw translations, authored additions, corrections, preference
+sets and versioned train/dev mixtures, separately from the model repository with
+the same name. The first verified snapshot contains 116 source/derivative files,
+12,324,277 bytes. Historical duplicates and rejected drafts remain identified;
+training uses a selected mixture, never a concatenation of the archive.
+
+Three explicitly authorized internal literary translation agents adapted 40
+English training-only QA and one twelve-turn dialogue each into French, German
+and Spanish. Each also translated six original held-out source QA. Astra read
+all 174 answer targets after the authors' self-review, fixed one French agreement
+and one Spanish phrasing, and preserved both pre-edit drafts. No external API was
+called. The compiled pilot contains 642 training rows (EN 228/RU 131/HE 127 and 52 in
+each new language), 79 validation rows, and 241 nonempty dialogue histories.
+Original source-ID split membership is checked before compiling. The existing
+sampling audit stays outside this new training set.
+
+An offline eight-word-span comparison checked the 198 candidate answers against
+the union of six retained training mixtures in the selected lineage. No generated
+eight-word span matched that corpus. The result and corpus file list are retained
+with the private sampling audit; the original-model controls are excluded.
+
+The six-language pilot completed two epochs: 1,284 example presentations and 82
+optimizer updates at learning rate 2e-6, in 745.79 seconds including validation and
+BF16 exports. Peak allocated memory was 11.215 GiB; maximum training length 1361.
+Input embedding and tied output-head hashes remained identical before and after.
+The visual encoder remained frozen. Full language-body optimization used
+498,113,344 trainable parameters, not LoRA.
+
+| Validation language | Before pilot | Epoch 1 | Epoch 2 |
+| --- | ---: | ---: | ---: |
+| English |4.0496|3.3936|3.5973|
+| Russian |3.9027|3.7106|3.8090|
+| Hebrew |3.3049|3.2362|3.3403|
+| French |4.0373|3.0881|3.1093|
+| German |4.1414|3.3998|3.4231|
+| Spanish |4.1626|3.1398|3.1707|
+
+The same fifteen language probes and three English histories were regenerated
+for each epoch at T=1/P=2, seed 42. All 36 answers terminated. English preserved
+character associations. Both candidates still contain substantial French,
+German and Spanish grammatical defects and poor Russian/Hebrew morphology.
+Epoch 1 has the lower validation loss in every language and is selected for
+further conversation evaluation. Neither candidate is a final polished release.
+Literal responses and the remaining language defects are recorded in the
+private experiment archive.
+
+Epoch 1 then completed another twenty-turn English run at T=0.8/P=2, retaining
+all history, plus six-turn conversations in each new language. All 38 answers
+terminated. English entered all five scenes and returned the shadow into the
+cinema at turn 19. Its largest prompt was 1,426 tokens; maximum prior-answer
+four-gram reuse was 7.69%, confined to one answer. Later fountain replies had
+vague referents. The associative voice and mixed narrative person persisted.
+
+French moved from library/orthography to bakery/croissant, with agreement and
+construction errors. German retained severe grammatical defects and imported
+the previous night watchman into a requested new cast. Spanish linked the shadow
+to a never-published book cover and a literary wedding, then carried the shadow
+into the bakery scene. These literal conversations identify the next grammar
+and selective-context training targets.
+
+The epoch-1 candidate is backed up privately under
+`working/six-language-polish-epoch001`, commit
+`805bc6e493f284be8b20c262b8fe65070c886c27`. The previous epoch-3 candidate remains
+preserved. This text continuation has not yet received a fresh image check.
+Final model release, quantization and NoTorch deployment remain upcoming work.

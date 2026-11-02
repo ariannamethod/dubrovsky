@@ -170,3 +170,31 @@ full partner histories and reports repetition within and between answers.
 Compare saved epochs using fresh conversations, selective callbacks, new themes
 and language quality. The final character and runtime selection follows those
 conversations.
+
+
+## Controlled sampling comparisons
+
+`compare_sampling.py` loads the candidate once and compares explicit temperature,
+top-p, top-k and generated-token presence penalty configurations. Fixed mode
+uses exactly the same supplied history for every configuration and seed. Dialogue
+mode follows a fixed sequence of user prompts while each branch retains its own
+actual assistant answers. It records full histories, token IDs, EOS termination,
+input hashes, library versions and within-answer/prior-answer repetition.
+
+```sh
+python training/compare_sampling.py --model PRIVATE_LOCAL_CANDIDATE \
+  --cases private/fixed-cases.json --configurations private/grid.json \
+  --seeds 42 137 --output private/comparison.jsonl
+python training/compare_sampling.py --model PRIVATE_LOCAL_CANDIDATE \
+  --mode dialogue --cases private/conversations.json \
+  --configurations private/selected-settings.json \
+  --seeds 42 --output private/long-conversations.jsonl
+```
+
+Cases are a JSON array with unique `id`, `language`, and either `messages`
+(fixed mode, alternating roles, ending with user) or `user_turns` (dialogue mode).
+Configurations are a JSON array with unique `id` and `sampling`, which must
+specify all four settings. Existing result files are never overwritten. Context
+is retained in full; excessive context raises an error instead of truncating.
+The four-gram diagnostics expose lexical copying; read the literal conversation
+to judge semantic continuity, scene changes, grammar and character.
