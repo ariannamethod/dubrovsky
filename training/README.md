@@ -327,3 +327,11 @@ histories. It retains all 228 English rows from the selected stage-7 mixture
 and a smaller French/German/Spanish replay slice. The report separates target
 token shares from row counts and compares epoch exports on fresh six-language
 prompts, RU/HE/EN conversations, native thinking closure and photographs.
+
+### Language method review
+
+[The post-stage-14 review](LANGUAGE_METHOD_REVIEW.md) checks our training method
+against Qwen documentation and multilingual adaptation studies, independently
+recounts native target-token exposure, and specifies a matched grammar-focused
+comparison with English retention. It separates implemented checks, measured
+failures and proposed experiments. No new weights are selected by this review.
