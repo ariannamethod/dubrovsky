@@ -1,0 +1,31 @@
+import unittest
+
+from compare_sampling import validate_inputs, validate_messages
+
+
+class SamplingTests(unittest.TestCase):
+    def test_histories_are_independent_and_roles_are_checked(self):
+        source = [dict(role='user', content='One')]
+        a, b = validate_messages(source), validate_messages(source)
+        a.append(dict(role='assistant', content='Different branch'))
+        self.assertEqual(len(b), 2)
+        self.assertEqual(len(source), 1)
+        with self.assertRaises(ValueError):
+            validate_messages(a)
+        with self.assertRaises(ValueError):
+            validate_messages([dict(role='assistant', content='Wrong role')])
+
+    def test_sampling_inputs_reject_duplicate_ids_and_invalid_values(self):
+        cases = [dict(id='x', language='en', user_turns=['One', 'Two'])]
+        config = dict(id='t1', sampling=dict(temperature=1., top_p=1., top_k=20, presence_penalty=2.))
+        validate_inputs(cases, [config], 'dialogue')
+        with self.assertRaises(ValueError):
+            validate_inputs(cases * 2, [config], 'dialogue')
+        for value in [0, float('nan'), True]:
+            bad = dict(config, sampling=dict(config['sampling'], temperature=value))
+            with self.assertRaises(ValueError):
+                validate_inputs(cases, [bad], 'dialogue')
+
+
+if __name__ == '__main__':
+    unittest.main()

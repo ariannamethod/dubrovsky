@@ -19,8 +19,13 @@ class GeneratedPresencePenalty:
 
 
 def generation_kwargs(preset, prompt_length):
+    return sampling_kwargs(PRESETS[preset], prompt_length)
+
+
+def sampling_kwargs(settings, prompt_length):
+    """Explicit settings for controlled comparisons, without changing presets."""
     from transformers import LogitsProcessorList
-    values = PRESETS[preset].copy()
+    values = settings.copy()
     penalty = values.pop('presence_penalty')
     return dict(**values, min_p=0.0, repetition_penalty=1.0, do_sample=True,
                 logits_processor=LogitsProcessorList(
