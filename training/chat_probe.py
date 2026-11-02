@@ -6,7 +6,18 @@ import time
 
 from decoding import PRESETS, generation_kwargs
 from sft import SYSTEM, chat_eos
-from sample import diagnostics
+from sample import diagnostics, grams
+
+
+def conversation_diagnostics(text, messages):
+    measured=diagnostics(text,set())
+    measured['training_8gram_fraction']=None  # No training corpus is loaded here.
+    previous={g for message in messages if message['role']=='assistant'
+              for g in grams(message['content'],4)}
+    current=grams(text,4)
+    measured['prior_answer_4gram_fraction']=(sum(g in previous for g in current)/len(current)
+                                             if current else 0)
+    return measured
 
 
 def main():
@@ -48,8 +59,7 @@ def main():
             **generation_kwargs(args.preset,len(prompt)),max_new_tokens=args.max_new_tokens,
             eos_token_id=eos,pad_token_id=tokenizer.pad_token_id,use_cache=True)[0,len(prompt):].tolist()
     text=tokenizer.decode(ids,skip_special_tokens=True)
-    measured=diagnostics(text,set())
-    measured['training_8gram_fraction']=None  # No training corpus is loaded by this probe.
+    measured=conversation_diagnostics(text,messages)
     record=dict(model=args.model,partner=source.get('partner','unspecified'),
         messages=messages+[{'role':'assistant','content':text}],text=text,token_ids=ids,
         prompt_tokens=len(prompt),seed=args.seed,preset=args.preset,sampling=PRESETS[args.preset],

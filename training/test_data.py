@@ -5,10 +5,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from prepare_dialogues import conversation_rows
 from build_dialogue_mixture import sample_replay
+from chat_probe import conversation_diagnostics
 from types import SimpleNamespace
 
 
 class CorpusTests(unittest.TestCase):
+    def test_conversation_copy_diagnostic_compares_previous_answers_only(self):
+        old='The train is gone forever.'
+        messages=[{'role':'user','content':'A new cabbage sings softly.'},
+                  {'role':'assistant','content':old}]
+        self.assertEqual(conversation_diagnostics(old,messages)['prior_answer_4gram_fraction'],1)
+        self.assertEqual(conversation_diagnostics('A new cabbage sings softly.',messages)['prior_answer_4gram_fraction'],0)
+        self.assertIsNone(conversation_diagnostics(old,messages)['training_8gram_fraction'])
+
     def test_language_replay_excludes_even_first_dialogue_turn(self):
         rows=[dict(id='dialogue-one-01',language='he',history=[]),
               dict(id='dialogue-one-02',language='he',history=[{'role':'user','content':'Q'}]),

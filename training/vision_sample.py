@@ -40,11 +40,13 @@ def main():
                 ids=model.generate(**inputs,**generation_kwargs(args.preset,length),max_new_tokens=192,
                     eos_token_id=eos,pad_token_id=processor.tokenizer.pad_token_id,use_cache=True)[0,length:].tolist()
                 text=processor.tokenizer.decode(ids,skip_special_tokens=True)
+                measured=diagnostics(text,set())
+                measured['training_8gram_fraction']=None  # No training corpus is loaded here.
                 row=dict(model=args.model,revision=args.revision,image=path.name,
                     image_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),language=language,
                     question=question,text=text,token_ids=ids,eos_reached=bool(ids and ids[-1] in eos),
                     preset=args.preset,sampling=PRESETS[args.preset],seed=42,
-                    diagnostics=diagnostics(text,set()))
+                    diagnostics=measured)
                 out.write(json.dumps(row,ensure_ascii=False)+'\n');out.flush()
                 print(json.dumps(row,ensure_ascii=False),flush=True)
 

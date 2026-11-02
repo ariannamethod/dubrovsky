@@ -283,7 +283,7 @@ switches and selective callbacks; this short repair is retained as an experiment
 
 Four new English demonstrations contain twelve turns each (48 total), with
 scene changes at turns 4, 7 and 11 and selective callbacks at turn 10. Russian
-and Hebrew literary adaptations are being prepared with those boundaries. These are newly
+and Hebrew literary adaptations were completed with those boundaries. These are newly
 authored examples; the prior measured conversations remain recorded separately.
 `build_dialogue_mixture.py` selects deterministic replay by language and excludes
 all dialogue IDs, including first turns with empty history, from the replay
@@ -297,3 +297,34 @@ projection losses: 3.858129978 and 3.858131170, absolute difference 1.19e-6.
 Peak allocation was 5.087 versus 3.681 GiB. `check_loss_parity.py` preserves the
 comparison output. A regression test checks that the first answer token remains
 supervised. Fifteen local tests pass.
+
+The first long-dialogue English continuation used 358 unique rows (196 English,
+83 Russian, 79 Hebrew), with 88 nonempty histories. It completed two epochs,
+716 example presentations and 46 optimizer updates, at learning rate 1.5e-6
+with answer-only vocabulary projection and full attention context. Exports
+completed in 157.17 seconds. The fixed 14 probes terminated 13/14; the aquarium
+umbrella probe retained possessive repetition. Russian still showed foreign-script
+intrusions. The new basement/orchid partner test is preserved separately.
+
+The English demonstrations were then extended to twenty turns each (80 total)
+in a separate source file, retaining the original twelve-turn source unchanged.
+The extensions add subtitle, Dubrovness and gratitude lore with more selective
+callbacks and scene changes. The Russian and Hebrew versions currently target
+the original twelve-turn conversations.
+
+The reviewed multilingual long-dialogue mixture has 486 unique training records:
+228 English, 131 Russian and 127 Hebrew; 208 contain nonempty prior histories.
+New demonstrations contribute 80 English turns from four twenty-turn conversations
+and 48 turns per translated language from four twelve-turn conversations.
+Original sources, direct adaptation provenance and final SHA-256 hashes are
+retained privately. Both translated versions were read in full by their author
+and by Astra; Hebrew received three documented wording refinements.
+
+The selected English candidate starts a three-epoch multilingual continuation
+at 2e-6, with every epoch exported. This stage is running; its outputs are not
+yet selected. A direct fit comparison on the 48 twelve-turn English demonstrations
+found answer-token loss decreased from approximately 4.55 to 3.12 after the
+preceding English continuation. Its separate basement/airport conversation still
+reused prior answers: 52.8% of turn-5 four-grams appeared in earlier assistant
+answers. `chat_probe.py` now records that cross-answer fraction. User turns do
+not enter this diagnostic. Sixteen unit tests pass.
