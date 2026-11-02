@@ -117,6 +117,24 @@ def read_rows(path):
     return rows
 
 
+def export_bf16_state(model):
+    """Copy to CPU BF16 while preserving exact tensor aliases for serialization.
+
+    Converting each state entry independently splits tied embedding/head storage,
+    so save_pretrained cannot deduplicate it. The live FP32 parameters and optimizer
+    remain untouched. Distinct views and equal-valued independent tensors stay distinct.
+    """
+    import torch
+    copies, state = {}, {}
+    for name, value in model.state_dict().items():
+        key = (value.device, value.data_ptr(), tuple(value.shape), tuple(value.stride()), value.dtype)
+        if key not in copies:
+            copies[key] = (value.detach().to(device='cpu', dtype=torch.bfloat16)
+                           if value.is_floating_point() else value.detach().cpu())
+        state[name] = copies[key]
+    return state
+
+
 def main():
     import torch
     import transformers
@@ -227,9 +245,7 @@ def main():
         if frozen_hashes != after_hashes:
             raise RuntimeError('Frozen language embeddings/head changed during training')
         # Export a CPU BF16 state without changing FP32 training parameters or Adam state.
-        state = {k: (v.detach().to(device='cpu', dtype=torch.bfloat16)
-                     if v.is_floating_point() else v.detach().cpu())
-                 for k,v in model.state_dict().items()}
+        state = export_bf16_state(model)
         previous_cache = model.config.use_cache
         model.config.use_cache = True
         model.generation_config.eos_token_id = chat_eos(model, tokenizer)
