@@ -1,10 +1,35 @@
 import unittest
 from prepare_corpus import normalize, parse, split_pairs
 from sft import encode, chat_eos
+from prepare_dialogues import conversation_rows
 from types import SimpleNamespace
 
 
 class CorpusTests(unittest.TestCase):
+    def test_dialogue_rows_never_include_current_or_future_answers_in_history(self):
+        rows = conversation_rows(dict(id='clock', language='en',
+            turns=[['Q1','A1'], ['Q2','A2'], ['Q3','A3']]))
+        self.assertEqual([len(r['history']) for r in rows], [0,2,4])
+        self.assertEqual([m['content'] for m in rows[1]['history']], ['Q1','A1'])
+        self.assertEqual([m['content'] for m in rows[2]['history']], ['Q1','A1','Q2','A2'])
+
+    def test_history_conditions_answer_without_supervising_prior_turns(self):
+        class Tokenizer:
+            def apply_chat_template(self, messages, **kwargs):
+                text = ''.join('<'+m['role']+'>'+m['content']+'<end>' for m in messages)
+                if kwargs['add_generation_prompt']:
+                    text += '<assistant>'
+                return list(text.encode())
+        row = dict(id='conversation', question='And the clock?', answer='It grew roots.',
+                   history=[{'role':'user','content':'Where is Tuesday?'},
+                            {'role':'assistant','content':'Inside the bread.'}])
+        encoded = encode(Tokenizer(), row, 1024)
+        supervised = bytes(x for x in encoded['labels'] if x != -100).decode()
+        self.assertEqual(supervised, 'It grew roots.<end>')
+        self.assertIn(b'Inside the bread.', bytes(encoded['input_ids']))
+        with self.assertRaises(ValueError):
+            encode(Tokenizer(), dict(row,history=row['history'][:1]),1024)
+
     def test_chat_turn_stop_keeps_model_stop(self):
         model = SimpleNamespace(generation_config=SimpleNamespace(eos_token_id=248044))
         tokenizer = SimpleNamespace(eos_token_id=248046)

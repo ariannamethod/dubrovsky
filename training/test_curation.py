@@ -1,6 +1,7 @@
 import hashlib
 import unittest
 from curate_corpus import curate
+from build_mixture import validate_splits
 
 
 def pair(question, answer):
@@ -9,6 +10,13 @@ def pair(question, answer):
 
 
 class CurationTests(unittest.TestCase):
+    def test_replay_cannot_leak_into_development_split(self):
+        a=pair('Who?', 'I misplaced Tuesday.')
+        b=pair('who!', 'Another answer.')
+        with self.assertRaises(ValueError):
+            validate_splits([a],[b])
+        validate_splits([a],[pair('Where?', 'Dubrovsky kept it.')])
+
     def test_exclusions_follow_translations_without_rewriting_or_resplitting(self):
         old = pair('How large?', 'Obsolete engine biography')
         retained = pair('Who?', 'I am a forgotten parameter asking for directions.')

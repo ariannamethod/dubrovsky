@@ -29,7 +29,7 @@ omitted; every unique pair remained. Context size: 546,929 characters.
   IDs overlap the pilot: 296 distinct source/language translations are available.
 - `author_material.py`: 24 new scenes each in English, Russian and Hebrew,
   totalling 72 GPT-authored continuations. They are labelled separately from
-  the original corpus and await review. None has entered Qwen training.
+  the original corpus. All 72 have now been reviewed for the continuation set.
 
 Private records retain raw responses, model identifiers, usage, source IDs and
 request/context hashes. Translations inherit source splits. The teacher saw the
@@ -63,6 +63,38 @@ variants. These remain separate from the English training files. Its teacher
 context contains the cleaned English corpus, supplied old literary sources and
 the Russian excerpts. New teacher generations have not yet used this context.
 
+## Reviewed continuation mixture
+
+`build_mixture.py` builds an explicitly reviewed slice, with source hashes and
+train/development overlap checks. The private review file selects 40 Russian
+translations and one short Hebrew translation; the remaining translations stay
+outside this run. It also selects all 72 new scenes, reserving four per language
+for development. One Hebrew question changes «המספר» to «הספר» to mean the barber;
+the review records that edit and its reason.
+
+Twenty historical Russian answers keep their exact wording and source locations.
+Their new prompts are labelled as newly framed prompts, rather than recovered
+original conversation turns. English replay retains 128 original training pairs.
+
+| Language | Training pairs | Development pairs |
+|---|---:|---:|
+| English | 148 | 53 |
+| Russian | 80 | 4 |
+| Hebrew | 21 | 4 |
+
+The 49 original English validation pairs remain held out. Generated development
+examples share the teacher's literary context; conversational selection uses
+fresh prompts as well. The continuation set contains 249 training and 61
+development pairs. With the pinned Qwen tokenizer, the longest training example
+is 476 tokens and the longest development example is 485: no truncation is needed.
+
+`sft.py --save-each-epoch` exports a BF16 candidate after each epoch while keeping
+training parameters and Adam state in FP32. `candidate` points to the last epoch;
+selection can choose any saved epoch. These are evaluation checkpoints, without
+optimizer state. Validation reports token-weighted loss by language. Loading a
+local selected candidate starts a new continuation run; remote bases still
+require an explicit revision.
+
 ## Decoding and image evaluation
 
 The [official Qwen3.5-0.8B README](https://huggingface.co/Qwen/Qwen3.5-0.8B/raw/main/README.md)
@@ -76,9 +108,9 @@ recommends these nonthinking settings:
 | Presence penalty | 0 | 2.0 | 1.5 |
 | Repetition penalty | 1.0 | 1.0 | 1.0 |
 
-Keep 0.8 as the comparison baseline. `decoding.py` implements additive presence
-penalty on generated tokens only. Torch execution checks and controlled preset
-comparisons remain pending; repetition penalty is a different operation.
+Keep 0.8 as the comparison baseline. `sample.py --preset` exposes the same presets
+as the image entry point. `decoding.py` implements additive presence penalty on
+generated tokens only; repetition penalty is a different operation.
 
 `vision_sample.py` prepares visible-object descriptions and absurdist scenes in
 English, Russian and Hebrew, recording image hashes, token IDs and sampling
@@ -94,13 +126,18 @@ language, identity and continuity. This test has not run yet.
 ## Compute and continuation
 
 The old pod accepted resume but supplied no current runtime or reachable
-container; log retrieval timed out. It was stopped again without deleting its
-30 GB volume. Previous candidates were saved there before the earlier stop;
-their files could not be re-read during this resume attempt. No new SFT, DPO or
-photographic evaluation ran. No weights were uploaded to Hugging Face.
+container; log retrieval timed out. A CPU-only recovery start also remained
+unreachable. It was stopped again without deleting its 30 GB volume. Previous
+candidates were saved there before the earlier stop; their files could not be
+re-read during this resume attempt. The host reported itself unlisted. An A40
+replacement allocation returned a supply constraint; an RTX 4090 replacement
+started successfully. The English stage is being reconstructed from the pinned
+base and cleaned 436-pair training corpus, with every epoch saved separately.
 
-Review the completed material alongside the Russian originals before
-building the next training mixture. Preserve intentional lexical inventions.
+Temporary private Hugging Face backups are authorized when useful. Remove them
+after the final selected full and quantized weights are safely published.
+A temporary private English checkpoint backup is now stored in the authorized repository; final release selection remains open.
+
 The previous SFT had 1,311 single-example forward/backward iterations and 84
 optimizer updates; first/last group training losses were 3.265025 and 1.205874.
 
@@ -125,7 +162,49 @@ reuses completed source/language pairs after validating their source split and
 language, then generates only the missing pairs. This prevents charging again
 for existing translations when adding the Russian literary context.
 
-Validation: nine local unit tests pass, including source/translation exclusion,
-split preservation and reuse of translations across context changes.
-Torch execution, GPU generation and visual evaluation
-remain pending.
+Validation includes source/translation exclusion,
+split preservation, normalized train/development overlap rejection and reuse of
+translations across context changes. A two-epoch GPU smoke run saved both
+candidates and continued optimization with unchanged frozen embeddings/head.
+Its final candidate loaded for generation. Continuation and evaluation results
+are recorded below.
+
+A CPU reload of the smoke export verified tied embeddings and the original
+FP32 embedding/head hashes. The additive presence penalty passed checks that
+exclude prompt tokens and penalize a generated token once regardless of repeats.
+`chat_probe.py` supports one turn with a preserved full conversation for manual
+partner testing; the initial dialogue result is recorded below.
+
+## Continuation update
+
+The RTX 4090 reconstructed three English epochs (436 pairs, 84 optimizer updates),
+then completed four mixed-language epochs (249 pairs, 64 updates). The selected
+English and mixed-language candidates were epoch 3 and epoch 4 respectively,
+based on literal generations. A 17-pair DPO run with chosen-answer NLL then
+completed four epochs and 20 updates. Three preferred answers were actual Qwen
+generations; fourteen were authored by Astra. These preference prompts now
+belong to training. Separate fixed and newly authored prompts remain evaluation.
+
+The DPO candidate terminated all 14 fixed baseline probes, while fresh Russian
+and Hebrew responses still showed grammatical defects. A two-turn English
+conversation repeated earlier content under baseline, temperature-only 1.0 and
+the official text preset. Three photographic inputs retained their main objects
+in English descriptions (astronaut suit, cat, espresso); detailed descriptions
+still contained errors, including locating the held helmet on the floor.
+
+The next prepared run has 476 training rows: 168 English, 186 Russian and 122
+Hebrew. It adds 85 reviewed saved Russian translations, 80 new Hebrew literary
+adaptations, 17 preferred-answer replays and 45 dialogue turns from nine authored
+five-turn conversations. New dialogue demonstrations are explicitly labelled;
+they are not reconstructed historical chats. The Hebrew adaptations were written
+and reviewed by Astra's translation agent without external API calls.
+
+`prepare_dialogues.py` builds causal histories; `sft.py` masks all prior turns and
+supervises only the current answer. The expanded run starts from the DPO candidate
+with three epochs, learning rate 3e-6 and frozen embeddings/head/vision. Its native
+tokenizer check passes; maximum training length is 585 tokens. All three epochs completed: 1,428 example presentations and 90 optimizer
+updates. Per-epoch generation comparisons are in progress; no successful long
+conversation is claimed yet.
+
+Twelve unit tests pass, including preventing current/future-answer leakage into
+conversation history and excluding history tokens from supervised loss.
