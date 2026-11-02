@@ -4,6 +4,15 @@ from compare_sampling import validate_inputs, validate_messages
 
 
 class SamplingTests(unittest.TestCase):
+    def test_empty_model_reply_is_preserved_for_next_turn_but_user_must_have_text(self):
+        history = [dict(role='user',content='First'),dict(role='assistant',content='\n'),
+                   dict(role='user',content='Continue')]
+        messages = validate_messages(history)
+        self.assertEqual(messages[2],history[1])
+        self.assertEqual(messages[-1]['content'],'Continue')
+        with self.assertRaises(ValueError):
+            validate_messages(history+[dict(role='assistant',content='ok'),dict(role='user',content=' ')])
+
     def test_histories_are_independent_and_roles_are_checked(self):
         source = [dict(role='user', content='One')]
         a, b = validate_messages(source), validate_messages(source)
