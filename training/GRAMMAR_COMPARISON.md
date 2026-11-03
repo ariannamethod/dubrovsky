@@ -5,6 +5,12 @@ Russian/Hebrew grammar or reliably preserves scene rules across twenty turns.
 The selected primary remains stage 7. Both exports are temporary research
 candidates, backed up privately; neither replaces the primary.
 
+Subsequent [stage-17 inspection](REPAIR_TARGET_AUDIT.md) found a defect in the
+student-repair objective: preserving the student's events also preserved known
+contradictions of user-established scene facts. Both arms contain this defect.
+The recorded stage-16 results remain valid observations of those curricula, but
+they do not isolate grammar repair from training on those incorrect scene targets.
+
 This executes the data-objective comparison in the
 [language method review](LANGUAGE_METHOD_REVIEW.md). Official Qwen, original
 huihui and two untuned Gemma instruction checkpoints provide diagnostic

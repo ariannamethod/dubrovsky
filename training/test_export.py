@@ -6,6 +6,29 @@ from sft import export_bf16_state
 
 @unittest.skipUnless(importlib.util.find_spec('torch'), 'requires PyTorch')
 class ExportTest(unittest.TestCase):
+    def test_mid_training_export_preserves_optimizer_trajectory(self):
+        import copy
+        import torch
+        torch.manual_seed(17)
+        uninterrupted = torch.nn.Linear(4, 3)
+        checkpointed = copy.deepcopy(uninterrupted)
+        optimizers = [torch.optim.AdamW(model.parameters(), lr=.01)
+                      for model in (uninterrupted, checkpointed)]
+        x, target = torch.randn(5, 4), torch.randn(5, 3)
+        for step in range(5):
+            for model, optimizer in zip((uninterrupted, checkpointed), optimizers):
+                optimizer.zero_grad()
+                (model(x) - target).square().mean().backward()
+                optimizer.step()
+            if step == 1:
+                export_bf16_state(checkpointed)
+        for left, right in zip(uninterrupted.parameters(), checkpointed.parameters()):
+            self.assertTrue(torch.equal(left, right))
+        left, right = [optimizer.state_dict()['state'] for optimizer in optimizers]
+        for parameter_id in left:
+            for name in left[parameter_id]:
+                self.assertTrue(torch.equal(left[parameter_id][name], right[parameter_id][name]))
+
     def test_tied_weights_and_live_fp32_parameters(self):
         import torch
         model = torch.nn.Module()

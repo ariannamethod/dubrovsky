@@ -7,6 +7,8 @@ from pathlib import Path
 import random
 import time
 
+from checkpoints import CandidateCheckpoints
+
 SYSTEM = 'You are Alexey Dubrovsky.'
 
 
@@ -43,9 +45,8 @@ def chat_eos(model, tokenizer):
     return sorted(set(eos))
 
 
-def encode(tokenizer, row, max_length, supervise_empty_thinking=False, thinking_closure_only=False):
-    if thinking_closure_only and not supervise_empty_thinking:
-        raise ValueError('Closure-only training requires empty-thinking supervision')
+def conversation_messages(row):
+    """Validate and render the shared conversation prefix for training/scoring."""
     messages = [{'role': 'system', 'content': SYSTEM}]
     history = row.get('history', [])
     if not isinstance(history, list) or len(history) % 2:
@@ -58,6 +59,13 @@ def encode(tokenizer, row, max_length, supervise_empty_thinking=False, thinking_
         messages.append(dict(role=role, content=message['content'],
                              **({'reasoning_content': ''} if role == 'assistant' else {})))
     messages.append({'role': 'user', 'content': row['question']})
+    return messages
+
+
+def encode(tokenizer, row, max_length, supervise_empty_thinking=False, thinking_closure_only=False):
+    if thinking_closure_only and not supervise_empty_thinking:
+        raise ValueError('Closure-only training requires empty-thinking supervision')
+    messages = conversation_messages(row)
     prefix = tokenizer.apply_chat_template(messages, tokenize=True,
                                           add_generation_prompt=True, enable_thinking=False, return_dict=False)
     complete = tokenizer.apply_chat_template(
@@ -117,6 +125,15 @@ def read_rows(path):
     return rows
 
 
+def checkpoint_steps(requested, total_steps):
+    """Reject unreachable snapshots before starting optimization."""
+    if any(step < 1 or step > total_steps for step in requested):
+        raise ValueError('Checkpoint steps must be positive and reachable in this run')
+    if len(set(requested)) != len(requested):
+        raise ValueError('Checkpoint steps must be unique')
+    return set(requested)
+
+
 def export_bf16_state(model):
     """Copy to CPU BF16 while preserving exact tensor aliases for serialization.
 
@@ -135,6 +152,36 @@ def export_bf16_state(model):
     return state
 
 
+def save_bf16_candidate(model, tokenizer, processor, destination, step, epoch, frozen_hashes):
+    if destination.exists():
+        raise ValueError('Preserve existing checkpoint: '+str(destination))
+    after_hashes = language_interface_hashes(model)
+    if frozen_hashes != after_hashes:
+        raise RuntimeError('Frozen language embeddings/head changed during optimization')
+    # Export a CPU BF16 state without changing FP32 training parameters or Adam state.
+    state = export_bf16_state(model)
+    previous_cache = model.config.use_cache
+    model.config.use_cache = True
+    model.generation_config.eos_token_id = chat_eos(model, tokenizer)
+    try:
+        model.save_pretrained(destination, state_dict=state, safe_serialization=True)
+        # save_pretrained infers dtype from the FP32 training model, not supplied state.
+        config_path = destination/'config.json'
+        config = json.loads(config_path.read_text())
+        config['dtype'] = 'bfloat16'
+        if 'torch_dtype' in config:
+            config['torch_dtype'] = 'bfloat16'
+        config_path.write_text(json.dumps(config, indent=2)+'\n')
+        processor.save_pretrained(destination)
+        tokenizer.save_pretrained(destination)
+        (destination/'training_checkpoint.json').write_text(json.dumps({
+            'step':step, 'epoch':epoch, 'export_dtype':'bfloat16',
+            'purpose':'candidate evaluation; optimizer state not included',
+            'frozen_hashes_before_export':after_hashes}, indent=2)+'\n')
+    finally:
+        model.config.use_cache = previous_cache
+
+
 def main():
     import torch
     import transformers
@@ -150,6 +197,9 @@ def main():
     p.add_argument('--max-length', type=int, default=1024)
     p.add_argument('--max-steps', type=int, default=0)
     p.add_argument('--save-each-epoch', action='store_true')
+    p.add_argument('--save-steps', type=int, nargs='+', default=[],
+                   help='Export evaluation candidates after these optimizer updates')
+    p.add_argument('--seed', type=int, default=20261031)
     p.add_argument('--ordered-training', action='store_true',
                    help='Consume the prepared training row order exactly; used for matched curriculum comparisons')
     p.add_argument('--eval-every-steps', type=int, default=0,
@@ -161,8 +211,8 @@ def main():
     p.add_argument('--thinking-closure-only', action='store_true',
                    help='Train only that empty transition; current answers are excluded from the training sequence')
     args = p.parse_args()
-    if args.epochs < 1 or args.accumulation < 1 or args.eval_every_steps < 0:
-        raise ValueError('Epochs and accumulation must be positive; evaluation interval must be nonnegative')
+    if args.epochs < 1 or args.accumulation < 1 or args.eval_every_steps < 0 or args.max_steps < 0:
+        raise ValueError('Epochs and accumulation must be positive; evaluation interval and max steps must be nonnegative')
     if args.thinking_closure_only and not args.supervise_empty_thinking:
         raise ValueError('--thinking-closure-only requires --supervise-empty-thinking')
     if not Path(args.model).is_dir() and not args.revision:
@@ -172,8 +222,8 @@ def main():
     if args.output.exists():
         raise ValueError('Use a fresh output directory for each run')
     args.output.mkdir(parents=True)
-    random.seed(20261031)
-    torch.manual_seed(20261031)
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
     processor = AutoProcessor.from_pretrained(args.model, revision=args.revision)
     def read(name):
@@ -188,6 +238,10 @@ def main():
             raise ValueError('Empty split: '+name)
         return result
     train, validation = read('train.jsonl'), read('validation.jsonl')
+    total_steps = args.epochs * math.ceil(len(train) / args.accumulation)
+    if args.max_steps:
+        total_steps = min(total_steps, args.max_steps)
+    snapshots = checkpoint_steps(args.save_steps, total_steps)
     model = Qwen3_5ForConditionalGeneration.from_pretrained(
         args.model, revision=args.revision, dtype=torch.float32, attn_implementation='sdpa').cuda()
     model.model.visual.requires_grad_(False)
@@ -197,14 +251,11 @@ def main():
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
     parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=0.01, fused=True)
-    total_steps = args.epochs * math.ceil(len(train) / args.accumulation)
-    if args.max_steps:
-        total_steps = min(total_steps, args.max_steps)
     warmup = max(1, math.ceil(total_steps * 0.1))
     run = {**vars(args), 'torch': torch.__version__, 'transformers': transformers.__version__,
            'gpu': torch.cuda.get_device_name(), 'trainable_parameters': sum(p.numel() for p in parameters),
            'total_parameters': sum(p.numel() for p in model.parameters()),
-           'system': SYSTEM, 'seed': 20261031, 'max_training_tokens': max(len(x['input_ids']) for x in train),
+           'system': SYSTEM, 'seed': args.seed, 'max_training_tokens': max(len(x['input_ids']) for x in train),
            'total_steps': total_steps, 'parameter_dtype': 'float32', 'autocast': 'bfloat16',
            'visual_encoder': 'frozen', 'language_embeddings': 'frozen', 'output_head': 'frozen',
            'tied_embeddings': tied, 'frozen_hashes_before': frozen_hashes,
@@ -227,7 +278,7 @@ def main():
             f.write(json.dumps(row) + '\n')
         print(json.dumps(row), flush=True)
     @torch.no_grad()
-    def evaluate(step):
+    def evaluate(step, epoch):
         model.eval()
         loss_sum, n, by_language, by_group = 0.0, 0, {}, {}
         for row in validation:
@@ -252,35 +303,13 @@ def main():
                          for lang, v in languages.items()}
                  for group, languages in by_group.items()}})
         model.train()
+        checkpoints.consider(loss_sum / n, step, epoch)
     def save_candidate(destination, step, epoch):
-        after_hashes = language_interface_hashes(model)
-        if frozen_hashes != after_hashes:
-            raise RuntimeError('Frozen language embeddings/head changed during training')
-        # Export a CPU BF16 state without changing FP32 training parameters or Adam state.
-        state = export_bf16_state(model)
-        previous_cache = model.config.use_cache
-        model.config.use_cache = True
-        model.generation_config.eos_token_id = chat_eos(model, tokenizer)
-        try:
-            model.save_pretrained(destination, state_dict=state, safe_serialization=True)
-            # save_pretrained infers dtype from the FP32 training model, not supplied state.
-            config_path = destination/'config.json'
-            config = json.loads(config_path.read_text())
-            config['dtype'] = 'bfloat16'
-            if 'torch_dtype' in config:
-                config['torch_dtype'] = 'bfloat16'
-            config_path.write_text(json.dumps(config, indent=2)+'\n')
-            processor.save_pretrained(destination)
-            tokenizer.save_pretrained(destination)
-            (destination/'training_checkpoint.json').write_text(json.dumps({
-                'step':step, 'epoch':epoch, 'export_dtype':'bfloat16',
-                'purpose':'candidate evaluation; optimizer state not included',
-                'frozen_hashes_before_export':after_hashes}, indent=2)+'\n')
-        finally:
-            model.config.use_cache = previous_cache
+        save_bf16_candidate(model, tokenizer, processor, destination, step, epoch, frozen_hashes)
         log({'step':step, 'epoch':epoch, 'checkpoint':str(destination)})
     started = time.monotonic()
-    evaluate(0)
+    checkpoints = CandidateCheckpoints(args.output, save_candidate)
+    evaluate(0, 0)
     step = 0
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(args.epochs):
@@ -315,13 +344,15 @@ def main():
                                     'answer_tokens': n_tokens}) + '\n')
             if (args.eval_every_steps and step % args.eval_every_steps == 0
                     and step < total_steps and start + args.accumulation < len(train)):
-                evaluate(step)
+                evaluate(step, epoch+1)
+            if step in snapshots:
+                checkpoints.save(step, epoch+1)
             if step >= total_steps:
                 break
-        evaluate(step)
+        evaluate(step, epoch+1)
         if args.save_each_epoch:
             last_checkpoint = args.output/f'epoch-{epoch+1:03d}'
-            save_candidate(last_checkpoint, step, epoch+1)
+            last_checkpoint.symlink_to(checkpoints.save(step, epoch+1).name, target_is_directory=True)
         if step >= total_steps:
             break
     # Candidate stays on the training disk until generation-based selection.
@@ -334,7 +365,7 @@ def main():
     if args.save_each_epoch:
         candidate.symlink_to(last_checkpoint.name, target_is_directory=True)
     else:
-        save_candidate(candidate, step, epoch+1)
+        candidate.symlink_to(checkpoints.save(step, epoch+1).name, target_is_directory=True)
     print(json.dumps({'status': 'completed', 'candidate': str(candidate)}), flush=True)
 
 
