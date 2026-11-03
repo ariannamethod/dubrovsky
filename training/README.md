@@ -327,3 +327,34 @@ histories. It retains all 228 English rows from the selected stage-7 mixture
 and a smaller French/German/Spanish replay slice. The report separates target
 token shares from row counts and compares epoch exports on fresh six-language
 prompts, RU/HE/EN conversations, native thinking closure and photographs.
+
+### Language method review
+
+[The post-stage-14 review](LANGUAGE_METHOD_REVIEW.md) checks our training method
+against Qwen documentation and multilingual adaptation studies, independently
+recounts native target-token exposure, and specifies a matched grammar-focused
+comparison with English retention. It separates implemented checks, measured
+failures and proposed experiments. No new weights are selected by this review.
+
+### Matched grammar comparison
+
+[Stage 16](GRAMMAR_COMPARISON.md) executes the literary-versus-focused comparison
+from the same parent with exactly matched per-language target-token budgets.
+Both candidates retain grammar and long-dialogue defects; the selected primary
+remains stage 7. The report includes original Qwen/huihui and untuned Gemma
+references, native thinking probes and the limits of these measurements.
+
+Score correct/incorrect continuations without requiring a one-word answer:
+
+```sh
+python training/score_grammar_pairs.py \
+  --model /private/pinned-qwen-checkpoint \
+  --pairs /private/evaluation/pairs.json \
+  --output /private/results/grammar-pairs.jsonl
+```
+
+The input is a JSON array with unique `id`, `language`, `category`, `register`,
+`question`, grammatical `answer` and `rejected` continuation. Remote model IDs
+require `--revision`. The scorer preserves summed and mean token log probability,
+token counts, ranking disagreements and input hashes. Turn-end tokens are not
+scored; existing output files are preserved. Inspect real generations separately.
