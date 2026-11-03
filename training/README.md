@@ -387,3 +387,25 @@ The input is a JSON array with unique `id`, `language`, `category`, `register`,
 require `--revision`. The scorer preserves summed and mean token log probability,
 token counts, ranking disagreements and input hashes. Turn-end tokens are not
 scored; existing output files are preserved. Inspect real generations separately.
+
+[The stage-18 RU/HE coverage report](RU_HE_COVERAGE.md) records the new
+construction-focused corpus, source-anchored editorial corrections, early
+checkpoint comparisons and retained character checks.
+
+### Receipts for published quotations
+
+Before placing a saved answer in a README or model card, verify its literal text
+and checkpoint attribution against the original generation file:
+
+```sh
+python training/quote_receipts.py --root /private/results \
+  --selections /private/quote-selections.json \
+  --output /private/quote-receipts.json
+```
+
+Each selection supplies `source_file`, `source_sha256`, `model`, `quote`, and
+`excerpt`, with `case_id`, `turn`, `seed` and `sampling` when available. The tool
+rejects changed source files, paraphrases, ambiguous matches and mismatched
+attribution. Receipts record the exact UTF-8 span, text hashes, model path and
+generation settings read from the saved response. Full private source files
+remain outside git.
