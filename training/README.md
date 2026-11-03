@@ -103,6 +103,30 @@ three epochs and learning rate are starting settings, not a selected result.
 `--max-steps 1` provides a real forward/backward/optimizer smoke run in a separate
 output directory.
 
+Use `--save-steps 20 40 80` to retain BF16 evaluation candidates after specified
+optimizer updates, in addition to `--save-each-epoch` exports. Steps must be
+unique, positive and reachable under the actual data, epochs and `--max-steps`
+limit. `--seed` controls the shuffle and Torch seed; its default preserves the
+earlier runs. Exports copy tensors without changing live FP32 parameters or
+optimizer state. They contain model/processor state and provenance, not the
+optimizer state needed to resume training exactly.
+
+Every SFT validation improvement now saves weights automatically, including the
+step-zero baseline. `best` points to the lowest-loss saved export and `best.json`
+records its step and loss. Earlier improvements remain available; a later
+regression cannot discard them. `candidate` still points to the final step,
+not an automatically promoted release. Epoch and explicit-step saves reuse an
+already exported step. Generation review is required before model selection.
+
+DPO saves every five optimizer updates and at each epoch boundary by default.
+`--save-every-steps 0` disables the periodic schedule; `--save-steps` adds explicit
+points. Supply separate `--validation-preferences` to evaluate held-out DPO/RPO
+loss and retain every improvement as `best`, with `--eval-every-steps` for
+mid-epoch checks. Reused training conversation prefixes are rejected from that
+holdout. The preferred-answer NLL is also logged: preference saturation alone
+does not establish language quality. Both trainers use the same alias-preserving
+export path and leave live FP32 parameters and optimizer state unchanged.
+
 ## Evaluate and select
 
 Compare literal generations under the same prompt, system message, seed and
@@ -343,6 +367,11 @@ from the same parent with exactly matched per-language target-token budgets.
 Both candidates retain grammar and long-dialogue defects; the selected primary
 remains stage 7. The report includes original Qwen/huihui and untuned Gemma
 references, native thinking probes and the limits of these measurements.
+
+[Stage 17's repair-target audit](REPAIR_TARGET_AUDIT.md) identifies a defect in
+that comparison's student targets and checks a controlled restoration of 32
+answers. It also records the newly caught recall-role reversal and the early
+weight exports added for generation-based selection.
 
 Score correct/incorrect continuations without requiring a one-word answer:
 

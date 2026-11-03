@@ -30,6 +30,18 @@ This repository is **subordinate to the [Arianna Method Manifesto](ARIANNA_METHO
   and corpus memorization. A low training loss alone is not success.
 - Record data provenance, deduplication, held-out splits, model revision, training
   settings, and generation settings so results can be reproduced.
+- Retain the weights of each new best validation point before continuing
+  optimization, including within an epoch. Preserve early DPO candidates even
+  when no held-out preference set is available. A final-step export alone is
+  insufficient; a lower validation loss still requires generation review.
+- When repairing a student's answer, preserve the actual conversation history
+  as input, but ground the corrected target in the user's stated scene facts,
+  ownership, conditions and topic changes. Earlier assistant errors do not
+  override those facts. A grammar-only repair that retains a known contradiction
+  must not enter the positive training targets without correcting that contradiction.
+- Review recall examples for role direction: the user asks the character to
+  remember, and the target supplies the remembered facts. Asking the user to
+  supply those facts does not train independent recall.
 - Keep the final selected unquantized and quantized weights in the private
   Hugging Face repository. Oleg also authorizes temporary weight backups there
   when needed; remove temporary artifacts after the final selection is secure.

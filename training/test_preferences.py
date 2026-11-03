@@ -1,5 +1,5 @@
 import unittest
-from dpo import encode_preference
+from dpo import encode_preference, validate_holdout
 from sft import encode
 
 
@@ -12,6 +12,13 @@ class TextTokenizer:
 
 
 class PreferenceTests(unittest.TestCase):
+    def test_validation_cannot_reuse_training_context_with_new_answers(self):
+        row = dict(question='Who owns it?', chosen='Ada.', rejected='Otto.')
+        with self.assertRaisesRegex(ValueError, 'held-out'):
+            validate_holdout([row], [dict(row, chosen='Ada owns it.', rejected='Otto owns it.')])
+        validate_holdout([row], [dict(row, question='What color was it?')])
+        validate_holdout([row], [])
+
     def test_both_answers_keep_history_masked_and_share_the_same_prefix(self):
         row = dict(question='What color was it?', chosen='Green.', rejected='Red.',
                    history=[dict(role='user', content='The parcel is green.'),

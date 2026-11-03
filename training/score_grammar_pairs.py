@@ -10,7 +10,7 @@ import json
 import math
 from pathlib import Path
 
-from sft import SYSTEM
+from sft import conversation_messages
 
 
 def validate_pairs(rows):
@@ -24,6 +24,7 @@ def validate_pairs(rows):
         if row['id'] in seen or row['answer'] == row['rejected']:
             raise ValueError('Duplicate ID or identical alternatives')
         seen.add(row['id'])
+        conversation_messages(row)
 
 
 def preference(correct, rejected):
@@ -61,7 +62,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x') as out, torch.inference_mode():
         for row in rows:
-            messages = [dict(role='system', content=SYSTEM), dict(role='user', content=row['question'])]
+            messages = conversation_messages(row)
             prefix = tok.apply_chat_template(messages, tokenize=True, return_dict=False,
                                               add_generation_prompt=True, enable_thinking=False)
             values = {}

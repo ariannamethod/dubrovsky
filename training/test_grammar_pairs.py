@@ -1,8 +1,23 @@
 import unittest
 from score_grammar_pairs import preference, validate_pairs
+from sft import conversation_messages
 
 
 class GrammarPairsTests(unittest.TestCase):
+    def test_history_is_shared_and_malformed_history_rejected(self):
+        row = dict(id='a', language='en', category='agreement', register='ordinary',
+                   question='Who owns it?', answer='Ada does.', rejected='Ada do.',
+                   history=[dict(role='user', content='Ada owns the spool.'),
+                            dict(role='assistant', content='The spool owns Tuesday.')])
+        validate_pairs([row])
+        messages = conversation_messages(row)
+        self.assertEqual([m['content'] for m in messages[1:]],
+                         ['Ada owns the spool.', 'The spool owns Tuesday.', 'Who owns it?'])
+        self.assertEqual(messages[2]['reasoning_content'], '')
+        self.assertNotIn('reasoning_content', row['history'][1])
+        with self.assertRaises(ValueError):
+            validate_pairs([dict(row, history=row['history'][:1])])
+
     def test_length_sensitive_ranking_is_not_hidden(self):
         result = preference(dict(tokens=3, mean_log_probability=-1),
                             dict(tokens=1, mean_log_probability=-2))
