@@ -10,6 +10,7 @@ class WeightSummaryTests(unittest.TestCase):
         target = dict(id='checkpoint', variant_sha256={'baseline': {'weight': 'original'}})
         self.spec = dict(variants=[dict(id='baseline')], seeds=[42, 137],
             targets=[target],
+            sampling=dict(temperature=0.8, top_p=1., top_k=20, presence_penalty=0.8), max_new_tokens=256,
             generations=[dict(id='early', language='he', seeds=[55, 150]),
                          dict(id='late', language='he', seeds=[57, 152])])
         self.rows = [dict(kind='provenance', spec_sha256='test', target=target,
@@ -19,6 +20,7 @@ class WeightSummaryTests(unittest.TestCase):
             for slot, seed in enumerate(case['seeds']):
                 self.rows.append(dict(kind='generation', variant='baseline', case_id=case['id'],
                     messages=validate_messages(case['messages']),
+                    sampling=self.spec['sampling'].copy(), max_new_tokens=256,
                     seed=seed, language='he', enable_thinking=False,
                     history_diagnostics=dict(exact_prior_message_indices=[2] if slot else [],
                                              prior_word4_fraction=float(slot)),
@@ -75,6 +77,36 @@ class WeightSummaryTests(unittest.TestCase):
         rows[1]['messages'][-1]['content'] = 'a different question'
         with self.assertRaises(ValueError):
             summarize(self.spec, rows, 'test')
+
+    def test_contrast_requires_exact_prompt_branches_language_and_mode(self):
+        case = dict(id='pair', language='he', messages=[dict(role='user', content='Continue.')],
+                    branches=dict(productive='New scene.', repeat='Old scene.'))
+        spec = dict(self.spec, contrasts=[case])
+        row = dict(kind='contrast', variant='baseline', case_id='pair', language='he',
+                   messages=case['messages'], branch_texts=case['branches'], enable_thinking=False,
+                   branches=dict(productive=dict(mean_logp=-2.), repeat=dict(mean_logp=-1.)))
+        rows = self.rows[:-2] + [row] + self.rows[-2:]
+        self.assertEqual(summarize(spec, rows, 'test')['contrast_pairs'], 1)
+        for field, value in [('messages', [dict(role='user', content='Wrong question.')]),
+                             ('branch_texts', dict(productive='Wrong answer.', repeat='Old scene.')),
+                             ('language', 'en'), ('enable_thinking', True), ('branches', {})]:
+            changed = copy.deepcopy(rows); changed[-3][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                summarize(spec, changed, 'test')
+
+    def test_decoding_matches_spec_and_dialogue_token_override(self):
+        case = dict(id='chat', language='he', seeds=[42], user_turns=['One.'], max_new_tokens=128)
+        spec = dict(self.spec, dialogues=[case])
+        row = dict(self.rows[1], kind='dialogue', case_id='chat', seed=42, turn=1,
+                   turn_seed=42, messages=validate_messages([dict(role='user', content='One.')]),
+                   text='Answer.', max_new_tokens=128)
+        rows = self.rows[:-2] + [row] + self.rows[-2:]
+        self.assertEqual(summarize(spec, rows, 'test')['dialogue_turns'], 1)
+        for index in [1, len(rows)-3]:
+            for field, value in [('sampling', dict(spec['sampling'], temperature=2.)), ('max_new_tokens', 10)]:
+                changed = copy.deepcopy(rows); changed[index][field] = value
+                with self.subTest(index=index, field=field), self.assertRaises(ValueError):
+                    summarize(spec, changed, 'test')
 
 
 if __name__ == '__main__':

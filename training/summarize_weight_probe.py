@@ -60,9 +60,24 @@ def summarize(spec, rows, spec_sha256):
     expected_pairs = {(v, c['id']) for v in variants for c in spec.get('contrasts', [])}
     if len(observed_pairs) != len(set(observed_pairs)) or set(observed_pairs) != expected_pairs:
         raise ValueError('Missing, extra or duplicate contrast cells')
+    contrast_cases = {c['id']: c for c in spec.get('contrasts', [])}
+    for row in contrasts:
+        case = contrast_cases[row['case_id']]
+        if (validate_messages(row['messages']) != validate_messages(case['messages']) or
+                row['branch_texts'] != case['branches'] or
+                set(row['branches']) != set(case['branches']) or
+                row['language'] != case['language'] or
+                row['enable_thinking'] is not False or
+                case.get('enable_thinking', False) is not False):
+            raise ValueError('Contrast prompt, continuations or mode differs')
+    def validate_decoding(row, case):
+        if (row['sampling'] != spec['sampling'] or
+                row['max_new_tokens'] != case.get('max_new_tokens', spec['max_new_tokens'])):
+            raise ValueError('Recorded decoding settings differ')
     grouped = defaultdict(list)
     for row, key in zip(generations, observed):
         case = cases[row['case_id']]
+        validate_decoding(row, case)
         if row['language'] != case['language'] or row['enable_thinking'] != case.get('enable_thinking', False):
             raise ValueError('Generation case metadata differs')
         if validate_messages(row['messages']) != validate_messages(case['messages']):
@@ -70,6 +85,7 @@ def summarize(spec, rows, spec_sha256):
         grouped[('fixed', row['variant'], expected[key], row['language'], row['enable_thinking'])].append(row)
     for row, key in zip(dialogue_rows, observed_turns):
         case = dialogues[row['case_id']]
+        validate_decoding(row, case)
         if row['language'] != case['language'] or row['enable_thinking'] != case.get('enable_thinking', False):
             raise ValueError('Dialogue case metadata differs')
         grouped[('dialogue', row['variant'], expected_turns[key], row['language'], row['enable_thinking'])].append(row)

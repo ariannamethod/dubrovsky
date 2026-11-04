@@ -152,7 +152,17 @@ It reports each language and seed slot separately. Raw generations, private
 specifications, source snapshots, control hashes and operator receipts stay in
 the private HF dataset repository.
 
-All 84 repository tests passed in the GPU environment. The local run passes
-80 tests and skips four PyTorch-dependent checks. The new regression checks
+All 84 pre-review repository tests passed in the GPU environment. The final
+local suite passes 82 tests and skips four PyTorch-dependent checks. The new regression checks
 cover branch-history isolation, seed offsets, missing and duplicate cells,
 changed fixed prompts, mismatched installed hashes, and failed restoration.
+
+PR 27's connector found two omitted receipt checks: contrast histories/texts
+and recorded decoding settings. Both omissions reproduced against deliberately
+altered copies of real receipts. The collector now checks normalized contrast
+history, exact branch texts, branch names, language and non-thinking mode,
+plus sampling settings and effective token limits for both fixed answers and
+dialogue turns. Two additional regression tests reject these corruptions,
+including a dialogue-specific token-limit override. Rechecking all 468 real
+generation receipts and 30 contrasts accepts them and leaves both summaries
+unchanged. The GPU generation code was unchanged by these collector fixes.
