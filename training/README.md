@@ -418,6 +418,9 @@ RU/HE/EN conversations with its own matched control. Each branch keeps its
 actual dialogue history; the collector checks complete cells, checkpoint and
 tensor hashes, and restoration before reporting results by language and seed.
 
+[Stage 23](DIALOGUE_STATE.md) trains ownership and custody across topic
+changes and tests the resulting checkpoints in their own conversations.
+
 ### Receipts for published quotations
 
 Before placing a saved answer in a README or model card, verify its literal text
