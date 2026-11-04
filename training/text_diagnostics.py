@@ -23,6 +23,51 @@ def words(text):
             start = None
 
 
+def script_spans(text, prefixes):
+    """Literal character runs, including independent foreign words and mixed words."""
+    hits = []
+    start = None
+    for i, char in enumerate(text + ' '):
+        matching = any(unicodedata.name(char, '').startswith(p) for p in prefixes)
+        if matching and start is None:
+            start = i
+        elif not matching and start is not None:
+            hits.append(dict(text=text[start:i], start=start, end=i))
+            start = None
+    return hits
+
+
+def role_mentions(text):
+    """Candidate performance-frame phrases; scene-aware reading determines errors."""
+    patterns = {
+        'he': r'(?<!\w)אני\s+(?:מגלמת|מגלם|משחקת|משחק)(?!\w)',
+        'ru': r'(?<!\w)я\s+(?:играю\s+роль|изображаю|исполняю\s+роль)(?!\w)',
+        'en': r"(?<!\w)I\s+(?:am|'m)\s+(?:playing|portraying|roleplaying|role-playing)(?!\w)",
+    }
+    return [dict(language=language, text=m.group(), start=m.start(), end=m.end())
+            for language, pattern in patterns.items()
+            for m in re.finditer(pattern, text, re.IGNORECASE)]
+
+
+def answer_history_diagnostics(text, messages):
+    """Compare only with assistant answers actually supplied in this row's history."""
+    history = list(messages)
+    if history and history[-1]['role'] == 'assistant':
+        if history[-1]['content'] != text:
+            raise ValueError('Saved final assistant message differs from answer text')
+        history = history[:-1]
+    previous = [(i, m['content']) for i, m in enumerate(history) if m['role'] == 'assistant']
+    def grams(value):
+        tokens = [w.casefold() for w, _, _ in words(value)]
+        return [tuple(tokens[i:i+4]) for i in range(max(0, len(tokens)-3))]
+    current = grams(text)
+    prior = {g for _, answer in previous for g in grams(answer)}
+    return dict(previous_assistant_messages=len(previous),
+                exact_prior_message_indices=[i for i, answer in previous if text and answer == text],
+                prior_word4_fraction=sum(g in prior for g in current)/len(current) if current else 0.,
+                current_word4_count=len(current))
+
+
 def diagnostics(text, question):
     tokens = list(words(text))
     mixed = []
@@ -60,8 +105,14 @@ def diagnostics(text, question):
     body_shared = (text[tokens[body_match.a][1]:tokens[body_match.a+body_match.size-1][2]]
                    if body_match.size else '')
     return dict(mixed_script_words=mixed, podal_forms=forms,
+                latin_spans=script_spans(text, ('LATIN ',)),
+                cjk_spans=script_spans(text, ('CJK ', 'HIRAGANA ', 'KATAKANA ', 'HANGUL ')),
+                role_performance_mentions=role_mentions(text),
                 opening_tokens=[w for w,_,_ in tokens[:3]],
                 hebrew_shenit_opening=first_plain in {'שנית', 'שניתן'},
+                # A screen for manual reading, not a Hebrew clause parser: many
+                # independent words (שלום, שוב) also begin with this character.
+                hebrew_sh_initial_candidate=first_plain.startswith('ש'),
                 full_prompt_echo=full_prompt_echo,
                 opening_prompt_overlap=dict(text=shared, words=match.size,
                                             flagged=match.size >= 6),
@@ -78,6 +129,7 @@ def summarize(rows):
         messages = row.get('messages', [])
         question = next((m['content'] for m in reversed(messages) if m['role']=='user'), '')
         result = diagnostics(row['text'], question)
+        result['answer_history'] = answer_history_diagnostics(row['text'], messages)
         item = dict(model=row['model'], language=row['language'], case_id=row['case_id'],
                     seed=row.get('seed'), configuration_id=row.get('configuration_id'),
                     turn=row.get('turn'), diagnostics=result)
@@ -86,6 +138,11 @@ def summarize(rows):
     totals = []
     for (model, language, seed, configuration), items in sorted(groups.items(),key=lambda x:repr(x[0])):
         counts = dict(mixed_script_answers=sum(bool(x['mixed_script_words']) for x in items),
+                      latin_containing_answers=sum(bool(x['latin_spans']) for x in items),
+                      cjk_containing_answers=sum(bool(x['cjk_spans']) for x in items),
+                      role_performance_answers=sum(bool(x['role_performance_mentions']) for x in items),
+                      exact_prior_answer_reuses=sum(bool(x['answer_history']['exact_prior_message_indices']) for x in items),
+                      hebrew_sh_initial_candidates=sum(x['hebrew_sh_initial_candidate'] for x in items),
                       podal_answers=sum(bool(x['podal_forms']) for x in items),
                       hebrew_shenit_openings=sum(x['hebrew_shenit_opening'] for x in items),
                       full_prompt_echoes=sum(x['full_prompt_echo'] for x in items),

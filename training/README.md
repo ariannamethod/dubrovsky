@@ -398,6 +398,12 @@ generation checks separate from consumed stage-18 questions. Its literal text
 counters preserve mixed-script spans, inflected Russian verb forms, Hebrew
 openings and prompt overlap, with checkpoint/language/seed denominators.
 
+[Stage 20's weight diagnostics](WEIGHT_DIAGNOSTICS.md) attributes Fable's next
+reading, adds Latin/CJK, role-performance and own-history reuse counters, and
+measures the published Qwen loop-edit direction in six pinned checkpoints on
+CPU. Target-specific tensor candidates and orthogonal controls await generation
+evaluation; the primary stays unchanged.
+
 ### Receipts for published quotations
 
 Before placing a saved answer in a README or model card, verify its literal text

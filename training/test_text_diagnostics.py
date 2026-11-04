@@ -1,5 +1,5 @@
 import unittest
-from text_diagnostics import diagnostics, summarize
+from text_diagnostics import diagnostics, summarize, answer_history_diagnostics
 
 
 class TextDiagnosticsTests(unittest.TestCase):
@@ -58,6 +58,55 @@ class TextDiagnosticsTests(unittest.TestCase):
         groups=summarize(rows)['groups']
         self.assertEqual(len(groups),3)
         self.assertTrue(all(x['answers']==1 for x in groups))
+
+    def test_cjk_has_own_counter_inside_or_between_words(self):
+        text='שלום发现. 日本語. 한글. カナ. かな.'
+        hits=diagnostics(text,'')['cjk_spans']
+        self.assertEqual([h['text'] for h in hits],['发现','日本語','한글','カナ','かな'])
+        self.assertTrue(all(text[h['start']:h['end']]==h['text'] for h in hits))
+
+    def test_latin_words_are_observations_not_mixed_word_errors(self):
+        d=diagnostics('שלום API, времяownership.','')
+        self.assertEqual([h['text']for h in d['latin_spans']],['API','ownership'])
+        self.assertEqual([h['text']for h in d['mixed_script_words']],['времяownership'])
+
+    def test_performance_frame_has_literal_evidence(self):
+        text='אני מגלמת נעמי. Я играю роль врача. I am portraying a sailor.'
+        hits=diagnostics(text,'')['role_performance_mentions']
+        self.assertEqual(len(hits),3)
+        self.assertTrue(all(text[h['start']:h['end']]==h['text']for h in hits))
+        self.assertFalse(diagnostics('אני נעמי. Я играю на скрипке.','')['role_performance_mentions'])
+
+    def test_sh_prefix_is_candidate_even_when_grammatical(self):
+        self.assertTrue(diagnostics('שלום עולם.','')['hebrew_sh_initial_candidate'])
+        self.assertTrue(diagnostics('שֶׁהָלַכְתִּי הביתה','')['hebrew_sh_initial_candidate'])
+        self.assertFalse(diagnostics('אני הלכתי.','')['hebrew_sh_initial_candidate'])
+
+    def test_new_counters_do_not_pool_models(self):
+        rows=[dict(model=m,language='he',case_id=str(i),text=t,messages=[],seed=42)
+              for i,(m,t)in enumerate([('old','שלום发现'),('new','אני מגלמת נעמי')])]
+        groups={r['model']:r for r in summarize(rows)['groups']}
+        self.assertEqual(groups['old']['cjk_containing_answers'],1)
+        self.assertEqual(groups['new']['cjk_containing_answers'],0)
+        self.assertEqual(groups['new']['role_performance_answers'],1)
+
+    def test_saved_answer_is_not_its_own_history(self):
+        text='Я держу четыре пустых облака.'
+        messages=[dict(role='user',content='Что у тебя?'),dict(role='assistant',content=text)]
+        d=answer_history_diagnostics(text,messages)
+        self.assertEqual(d['previous_assistant_messages'],0)
+        self.assertEqual(d['prior_word4_fraction'],0)
+        messages += [dict(role='user',content='А потом?'),dict(role='assistant',content=text)]
+        d=answer_history_diagnostics(text,messages)
+        self.assertEqual(d['exact_prior_message_indices'],[1])
+        self.assertEqual(d['prior_word4_fraction'],1)
+
+    def test_unrelated_fixed_rows_do_not_share_history(self):
+        rows=[dict(model='m',language='ru',case_id=str(i),text='Чужое имя.',messages=[])
+              for i in range(2)]
+        self.assertEqual(summarize(rows)['groups'][0]['exact_prior_answer_reuses'],0)
+        with self.assertRaises(ValueError):
+            answer_history_diagnostics('one',[dict(role='assistant',content='two')])
 
 
 if __name__=='__main__':
