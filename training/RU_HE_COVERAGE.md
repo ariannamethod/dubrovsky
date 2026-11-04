@@ -229,7 +229,7 @@ reading.
 
 The next planned control changes peak learning rate from `1e-6` to `3e-6` with
 the same pinned stage-12 parent, reviewed corpus, one-pass sample order, seed,
-freeze policy and automatic-best exports. That comparison has not been run.
+freeze policy and automatic-best exports. Stage 19 completes this comparison; see [LR_CONTROL.md](LR_CONTROL.md).
 It will measure the effect of update strength before another corpus expansion.
 The stage-18 questions have now been used for selection and diagnosis; new
 scenes are required for the next independent acceptance check.
