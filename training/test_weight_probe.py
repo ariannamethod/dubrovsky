@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 
 from weight_geometry import bf16_bits
-from weight_probe import make_variant
+from weight_probe import make_variant, dialogue_rows
 
 
 class WeightProbeTests(unittest.TestCase):
@@ -43,6 +43,21 @@ class WeightProbeTests(unittest.TestCase):
         for active in [[], [15, 15], [17]]:
             with self.subTest(active=active), self.assertRaises(ValueError):
                 make_variant(base, layers, dict(kind='projection', alpha=1, layers=active))
+
+    def test_dialogue_preserves_own_history_and_resets_between_seeds(self):
+        case = dict(id='fresh', language='en', user_turns=['Open the scene.', 'Change topic.'])
+        calls = []
+        def generate(value, seed):
+            calls.append((value['messages'], seed))
+            return dict(text=f'actual answer {seed}')
+        first = list(dialogue_rows(case, 42, generate))
+        second = list(dialogue_rows(case, 137, generate))
+        self.assertEqual([r['turn_seed'] for r in first], [42, 43])
+        self.assertEqual(first[1]['messages'][-2], dict(role='assistant', content='actual answer 42'))
+        self.assertEqual(len(second[0]['messages']), 2)
+        self.assertEqual(second[1]['messages'][-2]['content'], 'actual answer 137')
+        self.assertEqual(len(first[0]['messages']), 2)
+        self.assertTrue(all(r['messages'][-1]['role']=='user' for r in first+second))
 
 
 if __name__ == '__main__':

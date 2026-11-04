@@ -69,6 +69,20 @@ def make_variant(base, layers, variant):
     return result
 
 
+def dialogue_rows(case, seed, generate):
+    """Each variant/seed starts empty and extends only its own actual answers."""
+    turns = case.get('user_turns')
+    if not isinstance(turns, list) or not turns or any(not isinstance(t, str) or not t.strip() for t in turns):
+        raise ValueError('Expected nonempty dialogue turns')
+    history = []
+    for turn, question in enumerate(turns, 1):
+        messages = validate_messages(history + [dict(role='user', content=question)])
+        row = generate(dict(case, messages=messages), seed + turn - 1)
+        # Keep the exact prompt in each receipt before appending the answer.
+        yield dict(row, messages=messages, seed=seed, turn_seed=seed+turn-1, turn=turn)
+        history = messages + [dict(role='assistant', content=row['text'])]
+
+
 def main():
     import torch
     import transformers
@@ -160,6 +174,26 @@ def main():
             for handle in handles:
                 handle.remove()
 
+    def generate_case(case, seed):
+        thinking = case.get('enable_thinking', False)
+        messages = validate_messages(case['messages'])
+        prompt = prompt_ids(messages, thinking)
+        limit = case.get('max_new_tokens', spec['max_new_tokens'])
+        check_context(len(prompt) + limit)
+        torch.manual_seed(seed)
+        ids = torch.tensor([prompt], device='cuda')
+        generated = model.generate(input_ids=ids, attention_mask=torch.ones_like(ids),
+            **sampling_kwargs(spec['sampling'], len(prompt)),
+            max_new_tokens=limit, eos_token_id=eos,
+            pad_token_id=tokenizer.pad_token_id, use_cache=True)[0, len(prompt):].tolist()
+        text = tokenizer.decode(generated, skip_special_tokens=True)
+        split = split_generation(tokenizer, generated, thinking, eos)
+        return dict(case_id=case['id'], language=case['language'], messages=messages, text=text,
+            token_ids=generated, seed=seed, enable_thinking=thinking,
+            prompt_tokens=len(prompt), max_new_tokens=limit, sampling=spec['sampling'],
+            literal_diagnostics=diagnostics(text, messages[-1]['content']),
+            history_diagnostics=answer_history_diagnostics(text, messages), **split)
+
     with args.output.open('x') as out, torch.inference_mode():
         def emit(row):
             out.write(json.dumps(row, ensure_ascii=False) + '\n'); out.flush()
@@ -180,25 +214,12 @@ def main():
                         branch_texts=case['branches'], branches=branches,
                         prompt_tokens=len(prompt), enable_thinking=False))
                 for case in spec.get('generations', []):
-                    thinking = case.get('enable_thinking', False)
-                    prompt = prompt_ids(case['messages'], thinking)
-                    limit = case.get('max_new_tokens', spec['max_new_tokens'])
-                    check_context(len(prompt) + limit)
                     for seed in case.get('seeds', spec['seeds']):
-                        torch.manual_seed(seed)
-                        ids = torch.tensor([prompt], device='cuda')
-                        generated = model.generate(input_ids=ids, attention_mask=torch.ones_like(ids),
-                            **sampling_kwargs(spec['sampling'], len(prompt)),
-                            max_new_tokens=limit, eos_token_id=eos,
-                            pad_token_id=tokenizer.pad_token_id, use_cache=True)[0, len(prompt):].tolist()
-                        text = tokenizer.decode(generated, skip_special_tokens=True)
-                        split = split_generation(tokenizer, generated, thinking, eos)
-                        emit(dict(kind='generation', variant=variant['id'], case_id=case['id'],
-                            language=case['language'], messages=case['messages'], text=text,
-                            token_ids=generated, seed=seed, enable_thinking=thinking,
-                            prompt_tokens=len(prompt), max_new_tokens=limit, sampling=spec['sampling'],
-                            literal_diagnostics=diagnostics(text, case['messages'][-1]['content']),
-                            history_diagnostics=answer_history_diagnostics(text, case['messages']), **split))
+                        emit(dict(kind='generation', variant=variant['id'], **generate_case(case, seed)))
+                for case in spec.get('dialogues', []):
+                    for seed in case.get('seeds', spec['seeds']):
+                        for row in dialogue_rows(case, seed, generate_case):
+                            emit(dict(kind='dialogue', variant=variant['id'], **row))
                 print(json.dumps(dict(target=args.target, variant=variant['id'], complete=True,
                                       elapsed=time.monotonic()-started)), flush=True)
         finally:
