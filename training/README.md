@@ -392,6 +392,12 @@ scored; existing output files are preserved. Inspect real generations separately
 construction-focused corpus, source-anchored editorial corrections, early
 checkpoint comparisons and retained character checks.
 
+[Stage 19's learning-rate control](LR_CONTROL.md) decodes Fable's external
+reading by checkpoint, compares matched `1e-6` and `3e-6` passes, and keeps fresh
+generation checks separate from consumed stage-18 questions. Its literal text
+counters preserve mixed-script spans, inflected Russian verb forms, Hebrew
+openings and prompt overlap, with checkpoint/language/seed denominators.
+
 ### Receipts for published quotations
 
 Before placing a saved answer in a README or model card, verify its literal text
