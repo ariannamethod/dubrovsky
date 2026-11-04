@@ -42,7 +42,7 @@ def role_mentions(text):
     patterns = {
         'he': r'(?<!\w)אני\s+(?:מגלמת|מגלם|משחקת|משחק)(?!\w)',
         'ru': r'(?<!\w)я\s+(?:играю\s+роль|изображаю|исполняю\s+роль)(?!\w)',
-        'en': r"(?<!\w)I\s+(?:am|'m)\s+(?:playing|portraying|roleplaying|role-playing)(?!\w)",
+        'en': r"(?<!\w)I(?:\s+am|['’]m)\s+(?:playing|portraying|roleplaying|role-playing)(?!\w)",
     }
     return [dict(language=language, text=m.group(), start=m.start(), end=m.end())
             for language, pattern in patterns.items()

@@ -404,6 +404,14 @@ measures the published Qwen loop-edit direction in six pinned checkpoints on
 CPU. Target-specific tensor candidates and orthogonal controls await generation
 evaluation; the primary stays unchanged.
 
+[Stage 21's weight evaluation](WEIGHT_EVALUATION.md) runs those candidates and
+norm-matched controls through 126 generations and 42 paired continuation probes.
+Stronger directed edits break a reproduced Hebrew whole-answer copy, while
+grammar and scene errors remain and the primary's English ending loses detail.
+It records restored-parameter hashes, preserves the primary, and prepares a
+separate layer comparison. It also fixes the English contracted role-frame
+counter reported on PR 25 and recounts all prior English outputs.
+
 ### Receipts for published quotations
 
 Before placing a saved answer in a README or model card, verify its literal text
