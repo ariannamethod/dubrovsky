@@ -82,6 +82,20 @@ class TextDiagnosticsTests(unittest.TestCase):
         self.assertTrue(diagnostics('שֶׁהָלַכְתִּי הביתה','')['hebrew_sh_initial_candidate'])
         self.assertFalse(diagnostics('אני הלכתי.','')['hebrew_sh_initial_candidate'])
 
+    def test_english_performance_frame_contractions_and_boundaries(self):
+        for phrase in ["I'm portraying", 'I’m playing', 'I am roleplaying',
+                       "i'm role-playing", 'I\nam portraying']:
+            with self.subTest(phrase=phrase):
+                text = '“' + phrase + ' a sailor.”'
+                hits = diagnostics(text, '')['role_performance_mentions']
+                self.assertEqual(len(hits), 1)
+                self.assertEqual(hits[0]['text'], phrase)
+                self.assertEqual(text[hits[0]['start']:hits[0]['end']], phrase)
+        for text in ["AI'm portraying a sailor.", 'I am portrayingly quiet.',
+                     "I'm portrayed on a stamp.", 'I am a sailor.']:
+            with self.subTest(text=text):
+                self.assertEqual(diagnostics(text, '')['role_performance_mentions'], [])
+
     def test_new_counters_do_not_pool_models(self):
         rows=[dict(model=m,language='he',case_id=str(i),text=t,messages=[],seed=42)
               for i,(m,t)in enumerate([('old','שלום发现'),('new','אני מגלמת נעמי')])]
