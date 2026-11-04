@@ -412,6 +412,12 @@ It records restored-parameter hashes, preserves the primary, and prepares a
 separate layer comparison. It also fixes the English contracted role-frame
 counter reported on PR 25 and recounts all prior English outputs.
 
+[Stage 22's layer isolation](LAYER_ISOLATION.md) separates layers 15 and 19,
+adds a second seed, and carries an isolated candidate into fresh 16-turn
+RU/HE/EN conversations with its own matched control. Each branch keeps its
+actual dialogue history; the collector checks complete cells, checkpoint and
+tensor hashes, and restoration before reporting results by language and seed.
+
 ### Receipts for published quotations
 
 Before placing a saved answer in a README or model card, verify its literal text
