@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 from checkpoints import CandidateCheckpoints
 from embedded_experts import ExpertConfig, ExpertQwen, tensor_hashes
-from expert_data import encode_expert_row, validate_expert_splits
+from expert_data import encode_expert_row, validate_expert_splits, memory_inputs
 from sft import read_rows
 
 
@@ -29,7 +29,7 @@ def row_loss(model, row, kl_weight=0.0):
     positions = torch.nonzero(labels[1:] != -100).flatten()
     if positions.numel() == 0:
         raise ValueError('No supervised next-token positions')
-    corrected, original, _, _, _ = model.hidden(ids, mask)
+    corrected, original, _, _, _ = model.hidden(ids, mask, **memory_inputs(model, row, device))
     ce = corrected.new_zeros((), dtype=torch.float32)
     kl = ce.clone()
     for indices in positions.split(32):
@@ -74,6 +74,7 @@ def main():
     p.add_argument('--max-steps', type=int, default=0)
     p.add_argument('--max-length', type=int, default=3072)
     p.add_argument('--rank', type=int, default=16)
+    p.add_argument('--memory-source', choices=['isolated-users', 'legacy-context'], default='isolated-users')
     p.add_argument('--english-kl', type=float, default=0.1)
     p.add_argument('--seed', type=int, default=20261114)
     args = p.parse_args()
@@ -100,7 +101,8 @@ def main():
     random.seed(args.seed); torch.manual_seed(args.seed)
     base = Qwen3_5ForConditionalGeneration.from_pretrained(args.model, dtype='auto',
                  attn_implementation='sdpa').to(args.device).eval()
-    model = ExpertQwen(base, ExpertConfig(base.config.text_config.hidden_size, rank=args.rank), identity)
+    model = ExpertQwen(base, ExpertConfig(base.config.text_config.hidden_size, rank=args.rank,
+        format_version=2 if args.memory_source=='isolated-users' else 1), identity)
     frozen = tensor_hashes(model.base)
     optimizer = torch.optim.AdamW(model.experts.parameters(), lr=args.lr, weight_decay=0)
     args.output.mkdir(parents=True)

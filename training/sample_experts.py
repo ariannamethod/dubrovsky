@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, TemperatureLogitsWarper, TopKLogitsWarpe
 
 from decoding import GeneratedPresencePenalty
 from embedded_experts import ExpertQwen
-from expert_data import encode_expert_prompt
+from expert_data import encode_expert_prompt, memory_inputs
 from sft import chat_eos
 
 
@@ -29,7 +29,8 @@ def generate(model, tokenizer, row, *, seed, mode, max_new_tokens=256,
     mask = torch.tensor([prompt['user_mask']], device=device, dtype=torch.bool)
     options = dict(memory_enabled=mode != 'memory-off', enabled=mode != 'base')
     model.eval()
-    result = model(ids, mask, use_cache=True, logits_to_keep=1, **options)
+    result = model(ids, mask, use_cache=True, logits_to_keep=1,
+                   **memory_inputs(model, prompt, device), **options)
     eos = chat_eos(model.base, tokenizer)
     penalties = [GeneratedPresencePenalty(ids.shape[1], presence_penalty),
                  TemperatureLogitsWarper(temperature), TopKLogitsWarper(top_k),

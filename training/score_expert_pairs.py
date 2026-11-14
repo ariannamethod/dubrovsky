@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 
 from embedded_experts import ExpertQwen
-from expert_data import encode_expert_row
+from expert_data import encode_expert_row, memory_inputs
 from dpo import read_preferences
 
 
@@ -19,7 +19,8 @@ def score(model, tokenizer, row, answer, mode, max_length):
     mask = torch.tensor([item['user_mask']], dtype=torch.bool, device=device)
     labels = torch.tensor(item['labels'], device=device)
     positions = torch.nonzero(labels[1:] != -100).flatten()
-    hidden, _, _, _, _ = model.hidden(ids, mask, memory_enabled=mode!='memory-off', enabled=mode!='base')
+    hidden, _, _, _, _ = model.hidden(ids, mask, memory_enabled=mode!='memory-off', enabled=mode!='base',
+                                     **memory_inputs(model, item, device))
     nll = 0.0
     for indices in positions.split(32):
         logits = model.base.lm_head(hidden[0, indices]).float()

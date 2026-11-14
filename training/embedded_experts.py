@@ -1,9 +1,9 @@
 """Learned, checkpoint-owned experts with explicit per-conversation state.
 
-The frozen Qwen body produces causal hidden states. Four experts read a bank
-written at user tokens and a separate working state before the vocabulary head.
-User-token features include prior assistant context; the write mask controls
-write positions, not the contextual source. Callers own, carry, and reset state.
+The frozen Qwen body supplies two causal streams with shared weights and separate
+state. Format 2 writes the bank from user-only features; working state reads the
+full conversation. Format 1 retains the earlier contextual source for replay of
+saved pilots. Callers own, carry, and reset dialogue state.
 """
 from dataclasses import asdict, dataclass
 import hashlib
@@ -22,14 +22,14 @@ class ExpertConfig:
     experts: int = 4
     rank: int = 16
     max_delta_rms: float = 0.1
-    format_version: int = 1
+    format_version: int = 2
 
     def __post_init__(self):
         if min(self.hidden_size, self.experts, self.rank) < 1:
             raise ValueError('Expert dimensions must be positive')
         if not math.isfinite(self.max_delta_rms) or self.max_delta_rms <= 0:
             raise ValueError('Expert output bound must be finite and positive')
-        if self.format_version != 1:
+        if self.format_version not in (1, 2):
             raise ValueError('Unsupported embedded expert format')
 
 
@@ -68,13 +68,22 @@ class EmbeddedExperts(nn.Module):
         return ExpertState(self.source.new_zeros(shape), self.source.new_zeros(shape))
 
     def forward(self, hidden, user_mask, state=None, *, memory_enabled=True,
-                enabled=True):
+                enabled=True, memory_hidden=None):
         if hidden.ndim != 3 or hidden.shape[-1] != self.config.hidden_size:
             raise ValueError('Expected hidden states [batch, tokens, hidden_size]')
         if hidden.shape[1] == 0 or user_mask.shape != hidden.shape[:2] or user_mask.dtype != torch.bool:
             raise ValueError('A boolean user-content mask is required for every token')
         if user_mask.device != hidden.device or hidden.device != self.source.device:
             raise ValueError('Hidden states, masks and experts must share a device')
+        if self.config.format_version == 2:
+            if memory_hidden is None:
+                if user_mask.any():
+                    raise ValueError('Isolated user features are required at write positions')
+                memory_hidden = torch.zeros_like(hidden)
+            if memory_hidden.shape != hidden.shape or memory_hidden.device != hidden.device:
+                raise ValueError('Isolated features must align with the main hidden states')
+        elif memory_hidden is not None:
+            raise ValueError('Legacy experts use contextual write features')
         state = self.initial_state(hidden.shape[0]) if state is None else state
         expected = (hidden.shape[0], self.config.experts, self.config.rank)
         for tensor in (state.user, state.working):
@@ -88,8 +97,12 @@ class EmbeddedExperts(nn.Module):
             raw = hidden[:, pos]
             x = raw.to(self.source.dtype)
             x = x * torch.rsqrt(x.square().mean(-1, keepdim=True) + 1e-6)
-            fresh = torch.tanh(torch.einsum('bd,edr->ber', x, self.source))
-            features = torch.cat((x[:, None].expand(-1, self.config.experts, -1),
+            memory_x = x
+            if self.config.format_version == 2:
+                memory_x = memory_hidden[:, pos].to(self.source.dtype)
+                memory_x = memory_x * torch.rsqrt(memory_x.square().mean(-1, keepdim=True) + 1e-6)
+            fresh = torch.tanh(torch.einsum('bd,edr->ber', memory_x, self.source))
+            features = torch.cat((memory_x[:, None].expand(-1, self.config.experts, -1),
                                   bank, fresh, fresh - bank), dim=-1)
             retain = torch.sigmoid((features * self.retain).sum(-1) + self.retain_bias)
             write = torch.sigmoid((features * self.write).sum(-1) + self.write_bias)
@@ -151,18 +164,44 @@ class ExpertQwen(nn.Module):
         return self
 
     def hidden(self, input_ids, user_mask, *, state=None, past_key_values=None,
-               use_cache=False, memory_enabled=True, enabled=True):
+               use_cache=False, memory_enabled=True, enabled=True,
+               memory_input_ids=None, memory_user_mask=None):
         if input_ids.ndim != 2 or user_mask.shape != input_ids.shape:
             raise ValueError('Expected unpadded input IDs and matching user mask')
         past_length = 0 if past_key_values is None else past_key_values.get_seq_length()
         if past_length != (0 if state is None else state.positions):
             raise ValueError('Qwen cache and expert memory must describe the same prefix')
+        memory_hidden = None
+        if self.expert_config.format_version == 2 and user_mask.any():
+            # Turn boundaries reconstruct both prefixes. Only assistant decoding
+            # uses the incremental cache; never replay the bank on a cached user.
+            if past_length:
+                raise ValueError('New user writes require full-prefix reconstruction')
+            if (memory_input_ids is None or memory_user_mask is None
+                    or memory_input_ids.ndim != 2 or memory_input_ids.shape[0] != input_ids.shape[0]
+                    or memory_user_mask.shape != memory_input_ids.shape
+                    or memory_user_mask.dtype != torch.bool):
+                raise ValueError('A separate user-only token stream and mask are required')
+            if memory_input_ids.device != input_ids.device or memory_user_mask.device != input_ids.device:
+                raise ValueError('Both token streams must share a device')
+            for batch in range(input_ids.shape[0]):
+                if not torch.equal(input_ids[batch, user_mask[batch]],
+                                   memory_input_ids[batch, memory_user_mask[batch]]):
+                    raise ValueError('Isolated user-content IDs differ from the full conversation')
+            with torch.no_grad():
+                source = self.base.model(input_ids=memory_input_ids, use_cache=False,
+                                         return_dict=True).last_hidden_state
+            # The second forward has its own state: no shared Qwen cache.
+            memory_hidden = source.new_zeros((*input_ids.shape, source.shape[-1]))
+            for batch in range(input_ids.shape[0]):
+                memory_hidden[batch, user_mask[batch]] = source[batch, memory_user_mask[batch]]
         with torch.no_grad():
             result = self.base.model(input_ids=input_ids, use_cache=use_cache,
                                      past_key_values=past_key_values, return_dict=True)
         original = result.last_hidden_state.detach()
         corrected, state, votes = self.experts(original, user_mask, state,
-                            memory_enabled=memory_enabled, enabled=enabled)
+                            memory_enabled=memory_enabled, enabled=enabled,
+                            memory_hidden=memory_hidden)
         return corrected, original, state, result.past_key_values, votes
 
     def forward(self, input_ids, user_mask, *, logits_to_keep=0, **kwargs):
@@ -188,7 +227,9 @@ class ExpertQwen(nn.Module):
             expert_sha = hashlib.file_digest(stream, 'sha256').hexdigest()
         metadata = dict(config=asdict(self.expert_config), base_identity=self.base_identity,
                         experts_sha256=expert_sha,
-                        state_policy='user writes only; working updates every token; reset per dialogue',
+                        state_policy=('isolated user-stream writes; working reads full conversation; reset per dialogue'
+                            if self.expert_config.format_version == 2 else
+                            'contextual user-position writes; working updates every token; reset per dialogue'),
                         receipt=receipt or {}, frozen_body_hashes=tensor_hashes(self.base))
         # Metadata is the completion marker: partial directories cannot load.
         (path / 'embedded_experts.json').write_text(json.dumps(metadata, indent=2) + '\n')

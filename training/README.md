@@ -3,6 +3,8 @@
 Read the [Arianna Method Manifesto](../ARIANNA_METHOD_MANIFESTO.md) and
 [agent rules](../AGENTS.md).
 
+The current [isolated-memory pass](ISOLATED_USER_MEMORY.md) gives the bank a
+separate user-only feature stream and measures it against the completed pilot.
 The completed [embedded expert pilot](EMBEDDED_EXPERTS.md) trained four
 checkpoint-owned experts on Russian and English histories with the complete
 stage-7 body frozen. Its 288-reply comparison keeps stage 7 selected. The next
