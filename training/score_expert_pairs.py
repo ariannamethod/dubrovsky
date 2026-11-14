@@ -31,7 +31,8 @@ def main():
     from transformers import AutoTokenizer
     p = argparse.ArgumentParser()
     p.add_argument('--model', type=Path, required=True)
-    p.add_argument('--pairs', type=Path, required=True)
+    p.add_argument('--pairs', type=Path, required=True,
+                   help='JSONL preferences with question, history, chosen, rejected and reason')
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--device', default='cuda')
     p.add_argument('--max-length', type=int, default=3072)

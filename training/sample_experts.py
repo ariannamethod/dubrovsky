@@ -92,6 +92,9 @@ def main():
                             mode=mode, turn=turn, question=question, history=list(history),
                             model=str(args.model), seconds=time.monotonic()-start, **answer)
                         output.write(json.dumps(record, ensure_ascii=False)+'\n'); output.flush()
+                        print(json.dumps(dict(case=case['id'], seed=seed, mode=mode, turn=turn,
+                            tokens=len(answer['token_ids']), eos_reached=answer['eos_reached'],
+                            seconds=record['seconds'])), flush=True)
                         history.extend([dict(role='user', content=question),
                                         dict(role='assistant', content=answer['text'])])
 

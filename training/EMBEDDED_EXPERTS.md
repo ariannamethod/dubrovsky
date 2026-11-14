@@ -91,7 +91,7 @@ python training/train_experts.py --model "$PARENT" \
   --base-receipt "$PRIVATE/base-receipt.json" --data "$PRIVATE/data" \
   --output "$OUT" --epochs 1 --lr 3e-4 --accumulation 4 --eval-every 10
 python training/score_expert_pairs.py --model "$OUT/best" \
-  --pairs "$PRIVATE/eval/pairs.json" --output "$RESULTS/pairs.jsonl"
+  --pairs "$PRIVATE/eval/pairs.jsonl" --output "$RESULTS/pairs.jsonl"
 python training/sample_experts.py --model "$OUT/best" \
   --cases "$PRIVATE/eval/acceptance-dialogues.json" \
   --output "$RESULTS/dialogues.jsonl" --seeds 42 137
@@ -119,4 +119,63 @@ protocol. Its NoTorch loader, state transitions and numerical parity are the
 next runtime work after model evaluation. External NoTorch experts can then
 operate alongside the checkpoint-owned experts as a separately measured layer.
 
-GPU results and candidate selection are recorded below after the first run.
+## First GPU pass
+
+The first pass completed 57 optimizer updates. All 474 base state tensors
+matched their initial hashes. Every evaluated point improved the declared
+validation criterion and was retained, including the initial point.
+
+| Update | RU token loss | EN token loss | Equal-language mean |
+| --- | ---: | ---: | ---: |
+| 0 | 3.539743 | 3.608244 | 3.573993 |
+| 10 | 3.535763 | 3.607048 | 3.571406 |
+| 20 | 3.525840 | 3.603108 | 3.564474 |
+| 30 | 3.515033 | 3.599778 | 3.557405 |
+| 40 | 3.507829 | 3.592980 | 3.550404 |
+| 50 | 3.499133 | 3.586680 | 3.542907 |
+| 57 | 3.493491 | 3.581815 | 3.537653 |
+
+Step 57 is the validation-selected candidate. Pair scoring and full-dialogue
+review follow this checkpoint. The selected primary remains stage 7 during
+evaluation. Private evidence lives under dataset `ataeff/Dubrovsky`,
+`additions/2026-11-14-embedded-experts24/results/`; trained candidates are in the
+private model repository under `working/embedded-experts24-step-NNNNNN`.
+
+All seven remote candidate copies passed their weight-file and expert-file
+hash checks. Their 474 frozen-body tensor hashes match. Every one of the
+210,508 expert parameters changed between step 0 and step 57. The selected
+candidate is pinned at model revision
+`e6cec81c5243d47087da4f09a7719b5766abcca7`, subfolder
+`working/embedded-experts24-step-000057`; expert-file SHA-256:
+`416e049e68dd03918825f40da767c2eb717c9ce10891bd108cbf00c7041bbc6d`.
+
+The first evaluation launch failed before loading weights because its private
+preparation script wrote a JSON array while the preference reader expects
+JSONL. The eight pairs were reserialized without changing their contents;
+all 16 alternatives passed native-tokenizer encoding (maximum 586 tokens),
+and a CLI scoring smoke check completed all three modes. Training was not
+repeated. The evaluator now logs each completed answer and the worker backs
+up partial generations during the run. The replacement evaluation job restores
+the pinned saved checkpoint; its artifacts are under `results/eval24/`.
+
+### Real-parent startup checks
+
+The dedicated A40 passed the pinned private parent's file hash check, the test
+suite, and the full corpus mask audit before training. On the actual 0.8B model,
+zero-output experts gave maximum logit difference **0** on both the English
+(36-token) and Russian (40-token) checks. The user bank stayed unchanged during
+the subsequent assistant token. The model has 474 frozen state tensors and
+210,508 trainable expert parameters. The recorded environment is PyTorch
+`2.8.0.dev20250319+cu128`, Transformers `5.22.1`, CUDA 12.8, NVIDIA A40.
+
+### NoTorch connection point
+
+At NoTorch commit `374e1710d83ac3745ba21ede3e11745768062ef6`,
+`harness/arch_qwen35.c:q35_forward_all` applies the final RMS normalization to
+only the last token before producing logits. This expert block needs the
+normalized features of **every** prefill token to reconstruct its recurrent
+state. The native port therefore needs an all-token pre-head hook, explicit
+user-content masks and separate per-dialogue state; the existing last-token
+hidden output alone is insufficient for this transition. Existing DOE residual
+hooks remain available at their current layer positions. Port tests will compare
+all-token versus cached execution and resets before combining the two systems.
