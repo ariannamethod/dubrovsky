@@ -136,8 +136,8 @@ validation criterion and was retained, including the initial point.
 | 57 | 3.493491 | 3.581815 | 3.537653 |
 
 Step 57 is the validation-selected candidate. Pair scoring and full-dialogue
-review follow this checkpoint. The selected primary remains stage 7 during
-evaluation. Private evidence lives under dataset `ataeff/Dubrovsky`,
+review are complete. The selected primary remains stage 7: the new candidate
+did not improve long-dialogue role retention. Private evidence lives under dataset `ataeff/Dubrovsky`,
 `additions/2026-11-14-embedded-experts24/results/`; trained candidates are in the
 private model repository under `working/embedded-experts24-step-NNNNNN`.
 
@@ -179,3 +179,106 @@ user-content masks and separate per-dialogue state; the existing last-token
 hidden output alone is insufficient for this transition. Existing DOE residual
 hooks remain available at their current layer positions. Port tests will compare
 all-token versus cached execution and resets before combining the two systems.
+
+## Completed acceptance and decision
+
+The immutable private dataset result revision is
+`f6ea5c16c80bd81bef40fed5ef1fa567f1fc9a24`.
+`results/eval24/dialogues-step-000057.jsonl` contains all 288 replies (six cases,
+two seeds, three modes, eight turns), SHA-256
+`693b0adb96a6a59cd7e11801d47ffb4b9c68ca4873e3d1fd725d950bd012c8a7`.
+The evaluation used temperature 0.8, top-p 1.0, top-k 20, generated-token
+presence penalty 0.8, repetition penalty 1.0, a 192-new-token ceiling and a
+3,072-token context limit. All 288 replies reached EOS; none required truncation.
+
+Frozen-history contrast scores agree in all three modes: RU 4/4 correct
+preferences and 2/2 successful opposite-event families; EN 3/4 and 1/2 families.
+Both summed and mean log-probability give these counts. The failing English
+gift preference remains wrong with experts; its summed margin moves from
+-1.159 to -2.572. These histories contain the prepared assistant replies.
+
+In generated conversations, each mode instead reads its own earlier answers.
+Astra read every reply. The post-hoc role ledger records the two explicit
+owner/keeper questions per conversation, including partial and contradictory
+answers, against the original user events. A complete pass requires both
+current roles to be identifiable without a conflicting assignment in that answer.
+
+| Language / seed | Base | Experts | User bank off |
+| --- | ---: | ---: | ---: |
+| RU / 42 | 0/6 | 0/6 | 0/6 |
+| RU / 137 | 1/6 | 0/6 | 0/6 |
+| EN / 42 | 0/6 | 0/6 | 0/6 |
+| EN / 137 | 0/6 | 0/6 | 0/6 |
+
+This ledger is a visible-arm reading. Ambiguous partial cases remain identified
+in the private annotations; the independently shuffled blind packet contains
+all 36 full conversations with the decoding key stored separately. The packet
+is ready for Fable's reading. These scenes are retired from future acceptance.
+
+| Literal counter, 96 replies per mode | Base | Experts | User bank off |
+| --- | ---: | ---: | ---: |
+| EOS reached | 96 | 96 | 96 |
+| Replies containing CJK | 1 (EN) | 2 (RU) | 0 |
+| Replies containing Latin/Cyrillic mixed words | 1 | 1 | 1 |
+| Exact reuse of an earlier whole answer | 0 | 0 | 0 |
+| Full opening prompt echo | 0 | 0 | 0 |
+| Detected performance-frame phrases | 0 | 0 | 0 |
+
+The English associative voice remains audible in the scene development. Russian
+agreement errors and substitutions of names remain. Expert-generated answers
+sometimes identify one correct role and then contradict the other, or omit
+ownership while retaining the holder. The full dialogues and per-line reasons
+are retained privately for review. The analysis adapter supplies the current
+user question after the saved prior history when calling history diagnostics;
+the sampler stores those two fields separately.
+
+### Trained-state inspection
+
+On the six actual expert-mode final-turn prefixes at seed 42, switching off the
+user bank changes final-token logits by RMS 0.02095–0.04519. The full expert
+correction changes logits by RMS 0.11283–0.21212 relative to the base. Expert 2
+receives 0.707–0.938 of the final-token router weight, compared with
+0.421–0.476 averaged over all prefix tokens. Every prefix also passed exact
+sequential-versus-full expert-state reconstruction. These are CPU measurements
+with BF16 base weights and FP32 expert parameters.
+
+### Contextual write-source finding
+
+`EmbeddedExperts.forward` computes both fresh bank content and write gates from
+the frozen body's causal hidden state. A user-position write mask leaves the
+bank unchanged during assistant tokens, while the next user token's hidden
+state already contains that assistant context.
+
+`probe_expert_memory.py` measures this path with two assistant alternatives that
+swap owner and keeper. User-token IDs, user masks and all token positions are
+identical. The banks are bitwise equal immediately before the next user message.
+After that same question, their states differ:
+
+| Matched scene | Bank RMS difference | Maximum absolute difference |
+| --- | ---: | ---: |
+| EN | 0.041304 | 0.141702 |
+| RU | 0.021818 | 0.058150 |
+
+This is the concrete input path selected for repair: prior generated claims
+can affect a later bank write through Qwen's contextual features. The probe
+uses the saved trained checkpoint without editing any weights. Private cases
+and full numeric receipts accompany the run.
+
+```sh
+python training/probe_expert_memory.py --model "$OUT/best" \
+  --cases "$PRIVATE/eval/context-write-cases.json" \
+  --output "$RESULTS/context-write-diagnostic.json"
+```
+
+For the next candidate, provide the bank's content and write gates with a
+separate user-derived feature stream; keep the full conversation in working
+state. Changing only assistant text must then leave the bank identical after
+the next identical user message. Train explicit event/read pairs: a gift
+changes ownership, a loan changes custody, and a recall question reads the
+recorded state. Include assistant-history contradictions with targets grounded
+in user events. Compare that candidate from the same frozen body with fresh
+RU/EN full dialogues on both seeds, together with English voice replay.
+
+Both dedicated Dubrovsky pods have been stopped and terminated after their
+backups were verified. The seven saved expert candidates remain private
+experimental checkpoints. Stage 7 stays selected; no new release is promoted.

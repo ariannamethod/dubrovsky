@@ -1,8 +1,9 @@
 """Learned, checkpoint-owned experts with explicit per-conversation state.
 
-The frozen Qwen body produces causal hidden states. Four experts read user-only
-memory and a separate recurrent working state before the existing vocabulary
-head. No state is hidden on the module: callers own, carry, and reset it.
+The frozen Qwen body produces causal hidden states. Four experts read a bank
+written at user tokens and a separate working state before the vocabulary head.
+User-token features include prior assistant context; the write mask controls
+write positions, not the contextual source. Callers own, carry, and reset state.
 """
 from dataclasses import asdict, dataclass
 import hashlib
