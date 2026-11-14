@@ -1,7 +1,8 @@
 """Trace assistant context into later user-bank writes on matched prefixes.
 
 Cases are private JSON: language, user, correct, swapped, question. Both
-assistant alternatives must preserve all user-token IDs, masks and positions.
+assistant alternatives preserve user-content IDs. By default they also preserve
+masks and positions; --allow-assistant-length-change relaxes only that constraint.
 """
 import argparse
 import hashlib
@@ -98,7 +99,8 @@ def main():
     result = dict(checkpoint=str(args.model),
         expert_sha256=hashlib.sha256((args.model/'experts.safetensors').read_bytes()).hexdigest(),
         cases_sha256=hashlib.sha256(args.cases.read_bytes()).hexdigest(),
-        purpose='Assistant-context influence with identical user-token IDs, masks and positions; no model mutation',
+        purpose='Assistant-context influence with identical user-content IDs; no model mutation',
+        allow_assistant_length_change=args.allow_assistant_length_change,
         cases=reports)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x') as output:

@@ -1,5 +1,9 @@
 # Embedded experts: RU/EN pilot (stage 24)
 
+This document records the format-1 contextual-source pilot. Current training
+defaults to format 2, documented in [ISOLATED_USER_MEMORY.md](ISOLATED_USER_MEMORY.md).
+Reproducing this historical pass requires `--memory-source legacy-context`.
+
 Oleg selected English and Russian for this stage and requested learned experts
 inside Dubrovsky's weights. The target is continuity of the character's thought
 across changing topics, factual updates and associative scenes. The selected
@@ -89,7 +93,8 @@ python training/verify_expert_data.py --tokenizer "$PARENT" \
   --data "$PRIVATE/data" --output "$PRIVATE/token-audit.json"
 python training/train_experts.py --model "$PARENT" \
   --base-receipt "$PRIVATE/base-receipt.json" --data "$PRIVATE/data" \
-  --output "$OUT" --epochs 1 --lr 3e-4 --accumulation 4 --eval-every 10
+  --output "$OUT" --memory-source legacy-context \
+  --epochs 1 --lr 3e-4 --accumulation 4 --eval-every 10
 python training/score_expert_pairs.py --model "$OUT/best" \
   --pairs "$PRIVATE/eval/pairs.jsonl" --output "$RESULTS/pairs.jsonl"
 python training/sample_experts.py --model "$OUT/best" \
