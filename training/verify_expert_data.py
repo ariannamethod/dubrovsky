@@ -18,6 +18,10 @@ def verify(tokenizer, data, max_length):
         max_tokens = 0
         for row in rows:
             item = encode_expert_row(tokenizer, row, max_length)
+            main_users = [x for x,m in zip(item['input_ids'],item['user_mask']) if m]
+            isolated_users = [x for x,m in zip(item['memory_input_ids'],item['memory_user_mask']) if m]
+            if main_users != isolated_users:
+                raise ValueError('User-only source changed user-content tokens: '+row['id'])
             if any(write and label != -100 for write, label in zip(item['user_mask'], item['labels'])):
                 raise ValueError('Assistant target can write the user bank: '+row['id'])
             language = item['language']
@@ -29,7 +33,7 @@ def verify(tokenizer, data, max_length):
             sha = hashlib.file_digest(stream, 'sha256').hexdigest()
         reports[name] = dict(records=dict(counts), supervised_tokens=dict(supervised),
             user_write_positions=dict(writes), max_sequence_tokens=max_tokens, sha256=sha,
-            target_writes_user_bank=0, native_template_ids_equal=True)
+            target_writes_user_bank=0, native_template_ids_equal=True, isolated_user_content_ids_equal=True)
     return reports
 
 

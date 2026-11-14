@@ -3,11 +3,14 @@
 Read the [Arianna Method Manifesto](../ARIANNA_METHOD_MANIFESTO.md) and
 [agent rules](../AGENTS.md).
 
-The completed [embedded expert pilot](EMBEDDED_EXPERTS.md) trained four
-checkpoint-owned experts on Russian and English histories with the complete
-stage-7 body frozen. Its 288-reply comparison keeps stage 7 selected. The next
-repair isolates the bank's write features from earlier assistant context;
-the matched-prefix diagnostic and measured results are recorded in that report.
+The completed [isolated-memory pass](ISOLATED_USER_MEMORY.md) gives the bank a
+separate user-only feature stream. Trained banks remain bitwise unchanged when
+earlier assistant replies or their lengths change. Its fresh 288-reply reading
+keeps stage 7 selected: event-state readout and Russian language still need
+training. All seven retained points are backed up with frozen-body hash checks.
+The earlier [embedded expert pilot](EMBEDDED_EXPERTS.md) records the format-1
+contextual-source finding and the four checkpoint-owned experts. The next
+controlled experiment extends the expert-training curve on the fixed corpus.
 The earlier full-body SFT workflow follows.
 
 The first body is `huihui-ai/Huihui-Qwen3.5-0.8B-abliterated`, pinned to

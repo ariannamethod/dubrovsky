@@ -2,6 +2,30 @@
 from sft import conversation_messages, encode
 
 
+def isolated_user_stream(tokenizer, messages, max_length):
+    """Native user-role serialization with no assistant/system content or padding."""
+    users = [dict(role='user', content=m['content']) for m in messages if m['role']=='user']
+    if not users:
+        raise ValueError('User-only stream cannot be empty')
+    rendered = tokenizer.apply_chat_template(users, tokenize=False,
+        add_generation_prompt=False, enable_thinking=False)
+    ids = tokenizer.apply_chat_template(users, tokenize=True,
+        add_generation_prompt=False, enable_thinking=False, return_dict=False)
+    if len(ids) > max_length:
+        raise ValueError('User-only stream exceeds context limit; refusing truncation')
+    return dict(memory_input_ids=ids,
+                memory_user_mask=user_content_mask(tokenizer, users, rendered, ids))
+
+
+def memory_inputs(model, row, device):
+    """Convert the persisted source stream only for format-2 checkpoints."""
+    import torch
+    if model.expert_config.format_version == 1:
+        return {}
+    return dict(memory_input_ids=torch.tensor([row['memory_input_ids']], device=device),
+                memory_user_mask=torch.tensor([row['memory_user_mask']], dtype=torch.bool, device=device))
+
+
 def user_content_mask(tokenizer, messages, rendered, ids):
     if not tokenizer.is_fast:
         raise ValueError('A fast tokenizer with character offsets is required')
@@ -34,6 +58,7 @@ def encode_expert_row(tokenizer, row, max_length):
     rendered = tokenizer.apply_chat_template(messages, tokenize=False,
         add_generation_prompt=False, enable_thinking=False)
     encoded['user_mask'] = user_content_mask(tokenizer, messages, rendered, encoded['input_ids'])
+    encoded.update(isolated_user_stream(tokenizer, messages, max_length))
     encoded['id'] = row['id']
     encoded['language'] = row.get('language', 'en')
     if not any(encoded['user_mask']):
@@ -49,7 +74,8 @@ def encode_expert_prompt(tokenizer, row, max_length):
         add_generation_prompt=True, enable_thinking=False, return_dict=False)
     if len(ids) > max_length:
         raise ValueError('Full conversation exceeds the context limit; refusing truncation')
-    return dict(input_ids=ids, user_mask=user_content_mask(tokenizer, messages, rendered, ids))
+    return dict(input_ids=ids, user_mask=user_content_mask(tokenizer, messages, rendered, ids),
+                **isolated_user_stream(tokenizer, messages, max_length))
 
 
 def validate_expert_splits(train, validation):

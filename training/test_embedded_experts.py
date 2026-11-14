@@ -36,7 +36,7 @@ class ExpertTests(unittest.TestCase):
 
     def setUp(self):
         torch.manual_seed(240)
-        self.block = EmbeddedExperts(ExpertConfig(32, rank=4))
+        self.block = EmbeddedExperts(ExpertConfig(32, rank=4, format_version=1))
         self.x = torch.randn(1, 12, 32)
         self.mask = torch.tensor([[False, True, True, False, False, False,
                                   True, True, True, False, False, False]])
@@ -113,7 +113,7 @@ class ExpertTests(unittest.TestCase):
 class QwenIntegrationTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1); torch.manual_seed(24)
-        self.model = ExpertQwen(tiny_qwen(), ExpertConfig(32, rank=4))
+        self.model = ExpertQwen(tiny_qwen(), ExpertConfig(32, rank=4, format_version=1))
         self.ids = torch.tensor([[3, 4, 5, 6, 7, 8, 9, 10]])
         self.mask = torch.tensor([[False, True, True, False, True, True, False, False]])
 
@@ -202,6 +202,90 @@ class QwenIntegrationTests(unittest.TestCase):
                 stream.write(b'corrupt')
             with self.assertRaisesRegex(ValueError, 'Expert tensors differ'):
                 ExpertQwen.from_pretrained(path)
+
+
+class IsolatedMemoryTests(unittest.TestCase):
+    def setUp(self):
+        torch.set_num_threads(1); torch.manual_seed(25)
+        self.model = ExpertQwen(tiny_qwen(), ExpertConfig(32, rank=4))
+        self.ids = torch.tensor([[3, 4, 5, 6, 7, 8, 9, 10]])
+        self.mask = torch.tensor([[False, True, True, False, False, True, True, False]])
+        self.source = dict(memory_input_ids=torch.tensor([[3, 4, 5, 3, 8, 9]]),
+                           memory_user_mask=torch.tensor([[False, True, True, False, True, True]]))
+
+    def test_changed_assistant_content_and_length_cannot_rewrite_bank(self):
+        with torch.no_grad():
+            self.model.experts.output.normal_(0, 0.1)
+            a = self.model(self.ids, self.mask, **self.source)
+            changed = torch.tensor([[3,4,5,40,41,42,43,8,9,10]])
+            changed_mask = torch.tensor([[False,True,True,False,False,False,False,True,True,False]])
+            b = self.model(changed, changed_mask, **self.source)
+        self.assertTrue(torch.equal(a.state.user, b.state.user))
+        self.assertFalse(torch.equal(a.state.working, b.state.working))
+        self.assertFalse(torch.equal(a.logits[:,-1], b.logits[:,-1]))
+
+    def test_changed_user_fact_does_change_bank(self):
+        altered = {k:v.clone() for k,v in self.source.items()}
+        altered['memory_input_ids'][0,1] = 11
+        ids = self.ids.clone(); ids[0,1] = 11
+        with torch.no_grad():
+            a = self.model(self.ids, self.mask, **self.source)
+            b = self.model(ids, self.mask, **altered)
+        self.assertFalse(torch.equal(a.state.user, b.state.user))
+
+    def test_zero_parity_and_cached_answer_with_nonzero_experts(self):
+        with torch.no_grad():
+            ref = self.model.base(self.ids, use_cache=False).logits
+            self.assertTrue(torch.equal(ref, self.model(self.ids,self.mask,**self.source).logits))
+            self.model.experts.output.normal_(0,0.1)
+            full = self.model(self.ids,self.mask,**self.source)
+            head = self.model(self.ids[:,:7],self.mask[:,:7],use_cache=True,**self.source)
+            last = self.model(self.ids[:,7:],self.mask[:,7:],use_cache=True,
+                state=head.state,past_key_values=head.past_key_values)
+        torch.testing.assert_close(last.logits,full.logits[:,7:],atol=1e-6,rtol=1e-5)
+        self.assertTrue(torch.equal(last.state.user,full.state.user))
+
+    def test_missing_or_mismatched_source_and_cached_user_are_rejected(self):
+        with self.assertRaisesRegex(ValueError,'separate user-only'):
+            self.model(self.ids,self.mask)
+        altered={k:v.clone() for k,v in self.source.items()}
+        altered['memory_input_ids'][0,1]=11
+        with self.assertRaisesRegex(ValueError,'IDs differ'):
+            self.model(self.ids,self.mask,**altered)
+        with torch.no_grad():
+            a=self.model(self.ids,self.mask,use_cache=True,**self.source)
+        with self.assertRaisesRegex(ValueError,'full-prefix'):
+            self.model(torch.tensor([[4]]),torch.tensor([[True]]),state=a.state,
+                past_key_values=a.past_key_values,use_cache=True,**self.source)
+
+    def test_learned_gates_remain_independent_and_freeze_survives_reload(self):
+        frozen=tensor_hashes(self.model.base)
+        opt=torch.optim.AdamW(self.model.experts.parameters(),lr=.01)
+        row=dict(input_ids=self.ids[0].tolist(),user_mask=self.mask[0].tolist(),
+            labels=[-100]*6+[9,10],**{k:v[0].tolist() for k,v in self.source.items()})
+        for _ in range(3):
+            opt.zero_grad();loss,_,_=row_loss(self.model,row,.1);loss.backward();opt.step()
+        for name in ('source','retain','write'):
+            self.assertGreater(getattr(self.model.experts,name).grad.abs().sum().item(),0)
+        self.assertEqual(tensor_hashes(self.model.base),frozen)
+        changed=self.ids.clone();changed[0,3:5]=40
+        with torch.no_grad():
+            a=self.model(self.ids,self.mask,**self.source)
+            b=self.model(changed,self.mask,**self.source)
+        self.assertTrue(torch.equal(a.state.user,b.state.user))
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'isolated';self.model.save_pretrained(path)
+            loaded=ExpertQwen.from_pretrained(path)
+            self.assertEqual(loaded.expert_config.format_version,2)
+            torch.testing.assert_close(loaded(self.ids,self.mask,**self.source).logits,a.logits,rtol=0,atol=0)
+
+    def test_bf16_body_preserves_isolation(self):
+        self.model.base.to(dtype=torch.bfloat16)
+        changed=self.ids.clone();changed[0,3:5]=40
+        with torch.no_grad():
+            a=self.model(self.ids,self.mask,**self.source)
+            b=self.model(changed,self.mask,**self.source)
+        self.assertTrue(torch.equal(a.state.user,b.state.user))
 
 
 if __name__ == '__main__':
