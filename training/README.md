@@ -3,6 +3,11 @@
 Read the [Arianna Method Manifesto](../ARIANNA_METHOD_MANIFESTO.md) and
 [agent rules](../AGENTS.md).
 
+The current [embedded expert pilot](EMBEDDED_EXPERTS.md) trains four
+checkpoint-owned experts on Russian and English dialogue histories while
+freezing the complete selected stage-7 body. Its user-fact bank and working
+memory have separate update rules. The earlier full-body SFT workflow follows.
+
 The first body is `huihui-ai/Huihui-Qwen3.5-0.8B-abliterated`, pinned to
 `4813135658fe51b2e535b8e77927d2f23909ce42`. Training uses the complete
 `Qwen3_5ForConditionalGeneration` architecture. The visual encoder is frozen

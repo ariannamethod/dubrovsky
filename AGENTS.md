@@ -22,8 +22,12 @@ This repository is **subordinate to the [Arianna Method Manifesto](ARIANNA_METHO
   verify their byte-level integrity before and after optimization. Freeze the
   visual encoder during the text-only stage. Evaluate language retention from
   generations, including Russian and Hebrew.
+- The current stage targets English and Russian with learned experts inside the
+  checkpoint. Freeze the complete selected base for the first expert pilot.
+  Keep user-fact memory separate from working state and reset dialogue memory
+  with the conversation. External NoTorch experts are a later additional layer.
 - Preserve the authored English corpus as the character's lineage. For the
-  current multilingual reconstruction, compare the reviewed six-language mixture
+  historical multilingual reconstruction, compare the reviewed six-language mixture
   from the first update against a matched English-first schedule. Evaluate actual
   language and character generations before selecting a candidate.
 - Evaluate character, associative response to the prompt, diversity, repetition,
