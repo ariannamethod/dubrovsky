@@ -9,8 +9,9 @@ earlier assistant replies or their lengths change. Its fresh 288-reply reading
 keeps stage 7 selected: event-state readout and Russian language still need
 training. All seven retained points are backed up with frozen-body hash checks.
 The earlier [embedded expert pilot](EMBEDDED_EXPERTS.md) records the format-1
-contextual-source finding and the four checkpoint-owned experts. The next
-controlled experiment extends the expert-training curve on the fixed corpus.
+contextual-source finding and the four checkpoint-owned experts. The [duration experiment](EXPERT_DURATION.md) extends the expert-training
+curve from 57 to 228 updates on the fixed corpus, with a replayed first epoch
+and fresh acceptance scenes.
 The earlier full-body SFT workflow follows.
 
 The first body is `huihui-ai/Huihui-Qwen3.5-0.8B-abliterated`, pinned to
