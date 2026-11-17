@@ -104,7 +104,9 @@ def source_bank(model, tokenizer, messages, device):
 
 
 @torch.no_grad()
-def prepare_hidden(model, tokenizer, row, answer, device):
+def prepare_hidden(model, tokenizer, row, answer, device, *, value_offset=None):
+    if value_offset is not None and not 0 <= value_offset < len(answer):
+        raise ValueError('Value offset must lie inside the answer')
     item = encode_expert_row(tokenizer, dict(row, answer=answer), 3072)
     ids = torch.tensor([item['input_ids']], device=device)
     mask = torch.tensor([item['user_mask']], dtype=torch.bool, device=device)
@@ -126,7 +128,7 @@ def prepare_hidden(model, tokenizer, row, answer, device):
         raise ValueError('Unexpected assistant serialization')
     # answer is a role cue followed by one value; score the value including its
     # leading whitespace, never the cue, template suffix, or EOS.
-    begin = len(prefix) + answer.index(':') + 1
+    begin = len(prefix) + (answer.index(':') + 1 if value_offset is None else value_offset)
     end = len(prefix) + len(answer)
     positions = [i for i, (a, b) in enumerate(encoded['offset_mapping'])
                  if b > a and begin <= a and b <= end]
