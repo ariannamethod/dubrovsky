@@ -432,6 +432,10 @@ tensor hashes, and restoration before reporting results by language and seed.
 [Stage 23](DIALOGUE_STATE.md) trains ownership and custody across topic
 changes and tests the resulting checkpoints in their own conversations.
 
+[Stage 30](BALANCED_BANK.md) rechecks expert-objective imbalance through actual
+clipped Adam updates, compares two paired-bank weights, and reads all 140 fresh
+and controlled answers. Stage 7 remains selected.
+
 ### Receipts for published quotations
 
 Before placing a saved answer in a README or model card, verify its literal text
