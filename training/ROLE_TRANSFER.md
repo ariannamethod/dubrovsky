@@ -64,3 +64,15 @@ outside git. Unit checks cover independent factor changes, bounded simultaneous
 renaming, source immutability, and restoration of the base ablation after an error.
 Collect and hash-check raw results before releasing the owned Secure Cloud
 GPU; archive the full contextual review after reading.
+
+## Preparation correction before generation
+
+The first launch stopped at the strict shared-prefix check before producing
+answers. Alternative teacher answers of different token lengths were previously
+evaluated as separate complete sequences. Stage 31 now computes their common
+Qwen prefix once, clones its cache, and advances each answer suffix token by
+token. The exact prefix assertion remains in place. The audit records the
+legacy full-sequence difference alongside the shared-cache check for every row.
+A tiny Qwen test verifies both cache forks against independent cached rollouts.
+The failed launch, its inputs, and its logs are retained. Cases, seeds, frozen
+checkpoints, and generation settings are unchanged.

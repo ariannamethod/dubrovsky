@@ -14,9 +14,77 @@ import torch
 
 from embedded_experts import ExpertQwen, tensor_hashes
 from expert_data import encode_expert_prompt
-from probe_expert_readout import digest, ids_digest
+from probe_expert_readout import digest, ids_digest, prepare_hidden, question_bounds
 from sample_experts import generate
-from train_role_readout import prepare_pairs, evaluate
+from train_role_readout import evaluate, prefix_state
+
+
+@torch.no_grad()
+def causal_alternatives(body, sequences, device):
+    """Compute a shared prefix once; fork its cache before each answer suffix."""
+    common = 0
+    while common < min(map(len,sequences)) and len({s[common] for s in sequences}) == 1:
+        common += 1
+    if common == 0 or common == min(map(len,sequences)):
+        raise ValueError('Expected a nonempty shared prefix and differing suffixes')
+    prefix = body(input_ids=torch.tensor([sequences[0][:common]],device=device),
+                  use_cache=True,return_dict=True)
+    result = []
+    for sequence in sequences:
+        cache = copy.deepcopy(prefix.past_key_values)
+        pieces = [prefix.last_hidden_state]
+        for token in sequence[common:]:
+            out = body(input_ids=torch.tensor([[token]],device=device),
+                       past_key_values=cache,use_cache=True,return_dict=True)
+            cache = out.past_key_values
+            pieces.append(out.last_hidden_state)
+        result.append(torch.cat(pieces,dim=1))
+    return result, common
+
+
+@torch.no_grad()
+def prepare_transfer_pairs(model, tokenizer, pairs, device):
+    result, audit = [], []
+    for pair in pairs:
+        role = pair['role']
+        if role not in ('owner','keeper') or len(pair['rows'])!=2:
+            raise ValueError('Expected a two-source role pair')
+        prepared = []
+        for i,row in enumerate(pair['rows']):
+            other = pair['rows'][1-i]
+            if row[role]==other[role]:
+                raise ValueError('Counterfactual value did not change')
+            alternatives = [prepare_hidden(model,tokenizer,row,role.title()+': '+r[role],device)
+                            for r in (row,other)]
+            for item in alternatives:
+                item['cut'] = question_bounds(item['mask'])[1]
+                if min(item['positions']) <= item['cut']:
+                    raise ValueError('Value overlaps user prefix')
+            a,b = alternatives
+            if a['cut'] != b['cut']:
+                raise ValueError('Alternative token boundaries differ')
+            cut = a['cut']
+            legacy_difference = (a['raw'][:,:cut].float()-b['raw'][:,:cut].float()).abs().max().item()
+            raw,common = causal_alternatives(model.base.model,
+                [p['item']['input_ids'] for p in alternatives],device)
+            for item,value in zip(alternatives,raw):
+                item['raw'] = value
+            if not torch.equal(a['raw'][:,:common],b['raw'][:,:common]):
+                raise RuntimeError('Forked causal prefix differs')
+            audit.append(dict(id=row['id'],lengths=[len(p['item']['input_ids']) for p in alternatives],
+                common_tokens=common,legacy_prefix_max_difference=legacy_difference,
+                cached_prefix_bitwise_equal=True))
+            prepared.append(alternatives)
+        for i,row in enumerate(pair['rows']):
+            alternatives = prepared[i]
+            donor = prepared[1-i][0]
+            a = alternatives[0]
+            result.append(dict(id=row['id'],pair=pair['id'],role=role,alternatives=alternatives,
+                bank=prefix_state(model,donor).user.clone(),
+                normal_bank=prefix_state(model,a).user.clone(),
+                source_sha256=ids_digest(a['item']['memory_input_ids']),
+                donor_sha256=ids_digest(donor['item']['memory_input_ids'])))
+    return result,audit
 
 
 def transfer_pair(pair, *, names=None, assistant_history=None, object_name=None):
@@ -97,7 +165,8 @@ def main():
         states[spec['arm']] = load_file(str(path), device=args.device)
     model.experts.load_state_dict(states['start24'], strict=True)
     print('Preparing frozen paired features', flush=True)
-    prepared = prepare_pairs(model, tokenizer, data['pairs'], args.device)
+    prepared, prefix_audit = prepare_transfer_pairs(model, tokenizer, data['pairs'], args.device)
+    write('prefix-audit.json',prefix_audit)
     # Assistant substitutions, including their token lengths, preserve the bank.
     bank_groups = {}
     for pair in data['pairs']:

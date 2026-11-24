@@ -3,7 +3,8 @@ import unittest
 
 import torch
 
-from probe_role_transfer import base_readout, transfer_pair
+from probe_role_transfer import base_readout, transfer_pair, causal_alternatives
+from test_embedded_experts import tiny_qwen
 
 
 class TransferTests(unittest.TestCase):
@@ -49,6 +50,23 @@ class TransferTests(unittest.TestCase):
                 raise RuntimeError('test')
         self.assertEqual(block(x),x+1)
         self.assertNotIn('forward',block.__dict__)
+
+    def test_alternative_lengths_share_exact_causal_prefix(self):
+        torch.manual_seed(31)
+        body=tiny_qwen().model
+        sequences=[[2,3,4,5,6],[2,3,4,8,9,10]]
+        with torch.no_grad():
+            actual,common=causal_alternatives(body,sequences,'cpu')
+            self.assertEqual(common,3)
+            self.assertTrue(torch.equal(actual[0][:,:3],actual[1][:,:3]))
+            # Each fork is also reproduced by its own independent cached rollout.
+            for sequence,value in zip(sequences,actual):
+                out=body(input_ids=torch.tensor([sequence[:3]]),use_cache=True,return_dict=True)
+                pieces=[out.last_hidden_state]
+                for token in sequence[3:]:
+                    out=body(input_ids=torch.tensor([[token]]),past_key_values=out.past_key_values,use_cache=True,return_dict=True)
+                    pieces.append(out.last_hidden_state)
+                self.assertTrue(torch.equal(value,torch.cat(pieces,1)))
 
 
 if __name__=='__main__': unittest.main()
