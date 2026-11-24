@@ -4,6 +4,7 @@ The frozen Qwen body supplies two causal streams with shared weights and separat
 state. Format 2 writes the bank from user-only features; working state reads the
 full conversation. Format 1 retains the earlier contextual source for replay of
 saved pilots. Callers own, carry, and reset dialogue state.
+Format 3 retains isolated writes and adds a checkpoint-owned bounded output gain.
 """
 from dataclasses import asdict, dataclass
 import hashlib
@@ -23,14 +24,19 @@ class ExpertConfig:
     rank: int = 16
     max_delta_rms: float = 0.1
     format_version: int = 2
+    max_output_gain: float = 1.0
 
     def __post_init__(self):
         if min(self.hidden_size, self.experts, self.rank) < 1:
             raise ValueError('Expert dimensions must be positive')
         if not math.isfinite(self.max_delta_rms) or self.max_delta_rms <= 0:
             raise ValueError('Expert output bound must be finite and positive')
-        if self.format_version not in (1, 2):
+        if self.format_version not in (1, 2, 3):
             raise ValueError('Unsupported embedded expert format')
+        if not math.isfinite(self.max_output_gain) or self.max_output_gain < 1:
+            raise ValueError('Output gain range must be finite and at least one')
+        if self.format_version < 3 and self.max_output_gain != 1:
+            raise ValueError('Learned output gain requires format 3')
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,14 @@ class EmbeddedExperts(nn.Module):
         self.router_working = nn.Parameter(torch.zeros(e, r))
         # Only the output is zero. Earlier parameters get gradients once it moves.
         self.output = nn.Parameter(torch.zeros(e, r, d))
+        if config.format_version == 3:
+            self.log_output_gain = nn.Parameter(torch.zeros(()))
+
+    def output_gain(self):
+        if self.config.format_version < 3:
+            return self.output.new_ones(())
+        bound = math.log(self.config.max_output_gain)
+        return self.log_output_gain.clamp(-bound, bound).exp()
 
     def initial_state(self, batch_size):
         shape = (batch_size, self.config.experts, self.config.rank)
@@ -75,7 +89,7 @@ class EmbeddedExperts(nn.Module):
             raise ValueError('A boolean user-content mask is required for every token')
         if user_mask.device != hidden.device or hidden.device != self.source.device:
             raise ValueError('Hidden states, masks and experts must share a device')
-        if self.config.format_version == 2:
+        if self.config.format_version >= 2:
             if memory_hidden is None:
                 if user_mask.any():
                     raise ValueError('Isolated user features are required at write positions')
@@ -98,7 +112,7 @@ class EmbeddedExperts(nn.Module):
             x = raw.to(self.source.dtype)
             x = x * torch.rsqrt(x.square().mean(-1, keepdim=True) + 1e-6)
             memory_x = x
-            if self.config.format_version == 2:
+            if self.config.format_version >= 2:
                 memory_x = memory_hidden[:, pos].to(self.source.dtype)
                 memory_x = memory_x * torch.rsqrt(memory_x.square().mean(-1, keepdim=True) + 1e-6)
             fresh = torch.tanh(torch.einsum('bd,edr->ber', memory_x, self.source))
@@ -118,6 +132,8 @@ class EmbeddedExperts(nn.Module):
             delta = torch.einsum('be,ber,erd->bd', gates, working, self.output)
             rms = torch.sqrt(delta.square().mean(-1, keepdim=True) + 1e-12)
             delta = delta * (self.config.max_delta_rms / rms).clamp(max=1.0)
+            if self.config.format_version == 3:
+                delta = delta * self.output_gain()
             values.append(raw + delta.to(raw.dtype) if enabled else raw)
             votes.append(gates)
         return (torch.stack(values, dim=1),
@@ -172,7 +188,7 @@ class ExpertQwen(nn.Module):
         if past_length != (0 if state is None else state.positions):
             raise ValueError('Qwen cache and expert memory must describe the same prefix')
         memory_hidden = None
-        if self.expert_config.format_version == 2 and user_mask.any():
+        if self.expert_config.format_version >= 2 and user_mask.any():
             # Turn boundaries reconstruct both prefixes. Only assistant decoding
             # uses the incremental cache; never replay the bank on a cached user.
             if past_length:
@@ -228,7 +244,7 @@ class ExpertQwen(nn.Module):
         metadata = dict(config=asdict(self.expert_config), base_identity=self.base_identity,
                         experts_sha256=expert_sha,
                         state_policy=('isolated user-stream writes; working reads full conversation; reset per dialogue'
-                            if self.expert_config.format_version == 2 else
+                            if self.expert_config.format_version >= 2 else
                             'contextual user-position writes; working updates every token; reset per dialogue'),
                         receipt=receipt or {}, frozen_body_hashes=tensor_hashes(self.base))
         # Metadata is the completion marker: partial directories cannot load.
