@@ -50,7 +50,7 @@ def probe(model, tokenizer, scene, allow_length_change=False):
         raise ValueError('Isolated source streams differ')
     if not torch.equal(a['before'], b['before']):
         raise ValueError('User banks already differ before the second user message')
-    if model.expert_config.format_version==2 and not torch.equal(a['after'],b['after']):
+    if model.expert_config.format_version>=2 and not torch.equal(a['after'],b['after']):
         raise ValueError('Isolated user-bank invariance failed')
 
     def rms(x):
