@@ -86,3 +86,83 @@ remain available. Reports, data, configs and repository history were preserved.
 The retired paths total 58,086,572,896 logical bytes; historical storage remains.
 The full path/reason/hash manifest is `maintenance/weights_20261124_stage32.json`
 in the private model repository.
+
+## Completed pilot and reading
+
+Source commit: `9259ca88f6a951b1eb137dc0f7b4cd22f532da61`.
+Both arms completed 16 updates; learned gain reached 8 at step15. All 34 points,
+optimizer/RNG states, private inputs and actual replies were collected and
+verified. Both owned A100 pods were then stopped and deleted.
+
+| Teacher-forced measure | Parent | Fixed1 step16 | Learned step16 |
+|---|---:|---:|---:|
+| Train correct-name NLL | 3.0909 | 3.0569 | 0.9891 |
+| Train native name preferences | 9/16 | 9/16 | 9/16 |
+| Train pairs with both sources correct | 1/8 | 1/8 | 3/8 |
+| Validation correct-name NLL | 4.7346 | 4.8032 | 3.4169 |
+| Validation native name preferences | 5/8 | 5/8 | 5/8 |
+| Validation pairs with both sources correct | 1/4 | 1/4 | 1/4 |
+
+The learned arm corrected five wrong training preferences and lost five previously
+correct ones. Native bank-swap effects in the intended direction above 1e-5 rose
+from 6/16 to 13/16. Best trained validation points were fixed1 step2 (4.7455) and
+learned step15 (3.4073); both are retained. The prespecified endpoints received
+generation review. Step15 has not received a separate conversation review.
+
+All 128 comparison answers and eight gain-one parity answers were read in their
+actual contexts. Exact matching of text, token IDs and source history allowed
+16 comparison records to share a contextual note. The detailed private report
+contains every answer, its preceding history and its reading note.
+
+| Contextual reading | Stage7 | Parent | Fixed1 | Learned |
+|---|---:|---:|---:|---:|
+| Complete roles, identical prefixes | 0/8 | 2/8 | 1/8 | 2/8 |
+| Both histories of a fixed pair complete | 0/4 | 0/4 | 0/4 | 0/4 |
+| Complete roles, late English recalls | 0/6 | 1/6 | 0/6 | 0/6 |
+| Complete roles, Russian final recall | 0/1 | 0/1 | 0/1 | 0/1 |
+
+The eight fixed positions comprise four role pairs over two object families;
+the gift history is shared between the owner and keeper comparison in each
+family. They are six unique histories. Six English late recalls are the final
+two turns of each of three new five-turn conversations.
+
+With the learned endpoint and memory disabled, all eight fixed answers changed,
+while complete roles stayed at 2/8 and complete counterfactual pairs at 0/4.
+A reply that names both roles correctly and then introduces a new gift is not
+credited. Conversely, an unrelated leather shoe's wish to remain unowned does
+not cancel the expressly retained owner of the separate glass shoelace.
+
+The learned endpoint still produces distinctive associations in the orchid and
+bakery scenes. Its longer conversations also introduce new human owners in
+place of the user's roles and include new language defects. The Russian guard
+degrades into timestamp lists, with its final answer looping until the 192-token
+limit. 127/128 comparison answers reached EOS; all English answers did.
+
+**Decision: retain stage7.** The widened range resolves an actual strength limit
+and improves both-source training coverage, but this endpoint misses the sealed
+conversation criteria. Next, measure the output correction specifically caused
+by correct/swapped/zero banks, then compare amplification of that component
+with the uniform gain while protecting already correct margins. The current
+scalar amplifies the entire expert output, including its working-context part.
+Retire these fresh scenes into diagnostics and author new acceptance scenes for
+the next pilot.
+
+143 tests passed on CPU and GPU. All 474 body tensors and frozen expert tensors
+were unchanged. Gain-one parity passed on 16 complete hidden/state traces and
+four sampled answer pairs. Assistant text/length interventions preserved the
+isolated bank bitwise in English and Russian. All eight fixed prompt hashes
+match across all four arms and the memory-off intervention.
+
+Private artifacts:
+
+- `Dubrovsky_Stage32_Reading_20261124.md`: 221,785 bytes,
+  SHA256 `1663e5c1880d1a0465ccdcacf6c08fae110d1f953ccb45c5815e52cb9bc7bbac`.
+- `Dubrovsky_Stage32_Results_20261124.zip`: 44,555,949 bytes,
+  SHA256 `8f8b77888087bfb996673ebf3bb81fa8e844717877db865b2223ac37f8fcaca3`;
+  162 manifest entries verified and credential scan passed.
+- HF destination: `research/stage32-role-gain/` in private `ataeff/Dubrovsky`.
+
+HF backup commit: `c105077f5114fa951e4042fbeada3cdd2448f8fd`; all 13
+backup files were verified against their local sizes and SHA256s. The archive
+contains every point; direct-access deltas include the parent, both step16
+endpoints, fixed1 step2 and learned step15.

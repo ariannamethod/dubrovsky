@@ -4,6 +4,7 @@ The frozen Qwen body supplies two causal streams with shared weights and separat
 state. Format 2 writes the bank from user-only features; working state reads the
 full conversation. Format 1 retains the earlier contextual source for replay of
 saved pilots. Callers own, carry, and reset dialogue state.
+Format 3 retains isolated writes and adds a checkpoint-owned bounded output gain.
 """
 from dataclasses import asdict, dataclass
 import hashlib
